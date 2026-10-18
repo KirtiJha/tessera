@@ -15,6 +15,10 @@ import { invalidateChannels, NOTIFY_EVENTS, secretsOf, testChannel, type Channel
 import { slackApi, slackManifest } from "../notify/slack.js";
 import { randomBytes } from "node:crypto";
 
+async function teamInOrg(orgId: string, teamId: string): Promise<boolean> {
+  return ((await pool.query("SELECT 1 FROM teams WHERE id = $1 AND org_id = $2", [teamId, orgId])).rowCount ?? 0) > 0;
+}
+
 function admin(req: FastifyRequest) {
   const p = req.principal!;
   if (!canManageOrg(p)) throw Object.assign(new Error("admin role required"), { statusCode: 403 });
@@ -57,6 +61,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const p = admin(req);
     const body = z.object({ email: z.string().trim().toLowerCase().email().max(200), name: z.string().trim().min(1).max(100), role: RoleSchema.default("operator"), teamId: z.string().uuid().nullable().default(null) }).parse(req.body);
     if (body.role === "owner" && p.role !== "owner") return reply.code(403).send({ error: "Only an owner can invite an owner." });
+    if (body.teamId && !(await teamInOrg(p.orgId, body.teamId))) return reply.code(400).send({ error: "No such team in your organisation." });
     const token = newToken("tsi");
     try {
       const r = await pool.query<{ id: string }>(
@@ -77,6 +82,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const body = z.object({ role: RoleSchema.optional(), teamId: z.string().uuid().nullable().optional(), status: z.enum(["active", "disabled"]).optional(), name: z.string().trim().min(1).max(100).optional() }).parse(req.body);
     const target = await pool.query<{ role: Role }>("SELECT role FROM users WHERE id = $1 AND org_id = $2", [id, p.orgId]);
     if (!target.rows[0]) return reply.code(404).send({ error: "no such user" });
+    if (body.teamId && !(await teamInOrg(p.orgId, body.teamId))) return reply.code(400).send({ error: "No such team in your organisation." });
     if ((target.rows[0].role === "owner" || body.role === "owner") && p.role !== "owner") return reply.code(403).send({ error: "Only an owner can change an owner." });
     if (id === p.userId && (body.status === "disabled" || (body.role && !atLeast(body.role, "admin")))) return reply.code(400).send({ error: "You cannot lock yourself out." });
     const sets: string[] = [];
@@ -98,7 +104,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   // ---- teams ----------------------------------------------------------------
   app.get("/teams", async (req) => {
     const p = req.principal!;
-    const r = await pool.query("SELECT t.id, t.name, t.slug, (SELECT COUNT(*)::int FROM users u WHERE u.team_id = t.id) AS members FROM teams t WHERE t.org_id = $1 ORDER BY t.name", [p.orgId]);
+    const r = await pool.query("SELECT t.id, t.name, t.slug, (SELECT COUNT(*)::int FROM users u WHERE u.team_id = t.id AND u.org_id = t.org_id) AS members FROM teams t WHERE t.org_id = $1 ORDER BY t.name", [p.orgId]);
     return { teams: r.rows };
   });
 
@@ -139,6 +145,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   /** Issue a device token directly (shown once). */
   app.post("/devices", async (req) => {
     const p = req.principal!;
+    if (!atLeast(p.role, "operator")) throw Object.assign(new Error("Viewers watch the wall; enrolling a machine needs the operator role."), { statusCode: 403 });
     const body = z.object({ label: z.string().trim().min(1).max(120) }).parse(req.body);
     const { id, token } = await issueDevice(p.orgId, p.userId, body.label);
     await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "device.issue", targetType: "device", targetId: id, detail: { label: body.label }, ip: req.ip });
@@ -148,7 +155,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   /** One-time enrolment code for `tessera-reporter enrol`. */
   app.post("/devices/enrolment-code", async (req) => {
     const p = req.principal!;
-    const code = `${Math.random().toString(36).slice(2, 6)}-${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+    if (!atLeast(p.role, "operator")) throw Object.assign(new Error("Viewers watch the wall; enrolling a machine needs the operator role."), { statusCode: 403 });
+    // 8 characters from a 32-letter alphabet without look-alikes, from a secure source: 40 bits, single use, short-lived.
+    const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const raw = randomBytes(8);
+    const code = `${[...raw.subarray(0, 4)].map((b) => A[b & 31]).join("")}-${[...raw.subarray(4)].map((b) => A[b & 31]).join("")}`;
     await pool.query("INSERT INTO enrolment_codes (code, org_id, user_id, expires_at) VALUES ($1,$2,$3, now() + interval '15 minutes')", [code, p.orgId, p.userId]);
     return { code, expiresInSeconds: 900, serverUrl: config.publicUrl };
   });
@@ -360,7 +371,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
           GROUP BY 1, 2)
        SELECT d.day, s.owner_id, u.name AS owner_name, t.name AS team_name, SUM(GREATEST(d.cost, 0))::numeric AS cost, COUNT(DISTINCT d.session_id)::int AS sessions
          FROM daily d JOIN sessions s ON s.org_id = $1 AND s.id = d.session_id
-         LEFT JOIN users u ON u.id = s.owner_id LEFT JOIN teams t ON t.id = s.team_id
+         LEFT JOIN users u ON u.id = s.owner_id LEFT JOIN teams t ON t.id = s.team_id AND t.org_id = s.org_id
         GROUP BY 1, 2, 3, 4 ORDER BY 1 ASC`,
       [p.orgId, String(q.days)],
     );

@@ -52,7 +52,8 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
       settings: s,
       defaults: { retainSamplesDays: config.retainSamplesDays, retainEventsDays: config.retainEventsDays, retainSessionsDays: config.retainSessionsDays },
       stored: counts.rows[0],
-      stream: st ? { url: decrypt(st.url_enc).replace(/([?&](?:token|key|api_key)=)[^&]+/gi, "$1…"), headerName: st.header_name, format: st.format, enabled: st.enabled, lastSentAt: st.last_sent_at, lastError: st.last_error, pending } : null,
+      // The URL can carry a secret (a signed query string, user:pass@); only its host leaves the server.
+      stream: st ? { host: new URL(decrypt(st.url_enc)).host, headerName: st.header_name, format: st.format, enabled: st.enabled, lastSentAt: st.last_sent_at, lastError: st.last_error, pending } : null,
     };
   });
 
@@ -97,7 +98,8 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
   });
 
   const Stream = z.object({
-    url: https,
+    /** Leave out to keep the saved URL. */
+    url: https.optional(),
     format: z.enum(["ndjson", "splunk_hec", "json_array"]),
     headerName: z.string().trim().regex(/^[A-Za-z0-9-]{1,60}$/, "a header name").nullable().default(null),
     headerValue: z.string().max(2000).nullable().optional(),
@@ -108,7 +110,9 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
   app.put("/audit/stream", async (req, reply) => {
     const p = owner(req);
     const b = Stream.parse(req.body);
-    const cur = await pool.query<{ header_value_enc: string | null }>("SELECT header_value_enc FROM audit_streams WHERE org_id = $1", [p.orgId]);
+    const cur = await pool.query<{ header_value_enc: string | null; url_enc: string }>("SELECT header_value_enc, url_enc FROM audit_streams WHERE org_id = $1", [p.orgId]);
+    const urlEnc = b.url ? encrypt(b.url) : cur.rows[0]?.url_enc;
+    if (!urlEnc) return reply.code(400).send({ error: "Give the destination URL." });
     const headerValueEnc = b.headerValue ? encrypt(b.headerValue) : b.headerName ? (cur.rows[0]?.header_value_enc ?? null) : null;
     if (b.headerName && !headerValueEnc) return reply.code(400).send({ error: "Give the header's value (for Splunk: Splunk <HEC token>; Datadog: your API key)." });
     // A new stream starts at the next entry, or replays the whole log when asked.
@@ -117,9 +121,9 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
       `INSERT INTO audit_streams (org_id, url_enc, header_name, header_value_enc, format, enabled, cursor) VALUES ($1,$2,$3,$4,$5,$6,$7)
        ON CONFLICT (org_id) DO UPDATE SET url_enc = EXCLUDED.url_enc, header_name = EXCLUDED.header_name, header_value_enc = EXCLUDED.header_value_enc,
          format = EXCLUDED.format, enabled = EXCLUDED.enabled, updated_at = now(), last_error = NULL ${b.fromStart ? ", cursor = 0" : ""}`,
-      [p.orgId, encrypt(b.url), b.headerName, headerValueEnc, b.format, b.enabled, start],
+      [p.orgId, urlEnc, b.headerName, headerValueEnc, b.format, b.enabled, start],
     );
-    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "audit.stream.update", detail: { host: new URL(b.url).host, format: b.format, enabled: b.enabled, fromStart: b.fromStart }, ip: req.ip });
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "audit.stream.update", detail: { host: new URL(decrypt(urlEnc)).host, format: b.format, enabled: b.enabled, fromStart: b.fromStart }, ip: req.ip });
     return { ok: true };
   });
 

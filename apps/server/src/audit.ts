@@ -1,5 +1,5 @@
 import { sha256 } from "./auth/crypto.js";
-import { pool, type Queryable } from "./db/pool.js";
+import { pool, withTx, type Queryable } from "./db/pool.js";
 
 /** Deterministic JSON: jsonb does not keep key order, so hashes must not depend on it. */
 export function canonical(v: unknown): string {
@@ -26,6 +26,17 @@ export interface AuditInput {
  * the chain. `verifyChain` walks it.
  */
 export async function audit(input: AuditInput, q: Queryable = pool): Promise<void> {
+  // Reading the last hash and appending must not interleave with another
+  // writer for the same org (two admins, two replicas): it would fork the
+  // chain. An advisory lock held to the end of the transaction serialises
+  // writers per org, which also makes ids commit in order, so the SIEM stream
+  // never passes over an id that commits later.
+  if (q === pool) return withTx((c) => write(input, c));
+  return write(input, q);
+}
+
+async function write(input: AuditInput, q: Queryable): Promise<void> {
+  await q.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`audit:${input.orgId}`]);
   const prev = await q.query<{ hash: string }>("SELECT hash FROM audit_log WHERE org_id = $1 ORDER BY id DESC LIMIT 1", [input.orgId]);
   const prevHash = prev.rows[0]?.hash ?? null;
   const createdAt = new Date().toISOString();

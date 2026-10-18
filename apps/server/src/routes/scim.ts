@@ -76,8 +76,12 @@ function parseFilter(f: string | undefined): { attr: string; value: string } | n
 }
 
 function page(q: Record<string, string | undefined>): { start: number; count: number } {
-  const start = Math.max(1, Number(q.startIndex ?? 1) || 1);
-  const count = Math.min(200, Math.max(0, Number(q.count ?? 100) || 0));
+  const n = (v: string | undefined, d: number) => {
+    const x = Math.trunc(Number(v ?? d));
+    return Number.isFinite(x) ? x : d;
+  };
+  const start = Math.min(1_000_000, Math.max(1, n(q.startIndex, 1)));
+  const count = Math.min(200, Math.max(0, n(q.count, 100)));
   return { start, count };
 }
 
@@ -206,7 +210,7 @@ export async function scimRoutes(app: FastifyInstance): Promise<void> {
     const p = fromScimUser(req.body as Record<string, unknown>);
     if (!p.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) throw new ScimError(400, "userName must be the person's email address.", "invalidValue");
     const exists = await pool.query<{ org_id: string }>("SELECT org_id FROM users WHERE lower(email) = $1", [p.email]);
-    if (exists.rows[0]) throw new ScimError(409, exists.rows[0].org_id === orgId ? "A user with that email exists. Match on userName instead." : "That email belongs to another Tessera organisation.", "uniqueness");
+    if (exists.rows[0]) throw new ScimError(409, exists.rows[0].org_id === orgId ? "A user with that email exists. Match on userName instead." : "A user with that email cannot be created here.", "uniqueness");
     const role = (await pool.query<{ default_role: string }>("SELECT default_role FROM org_sso WHERE org_id = $1", [orgId])).rows[0]?.default_role ?? "operator";
     const r = await pool.query<UserRow>(
       `INSERT INTO users (org_id, email, name, given_name, family_name, role, status, scim_external_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${USER_COLS}`,
@@ -277,12 +281,13 @@ export async function scimRoutes(app: FastifyInstance): Promise<void> {
   // ---- groups → teams ----------------------------------------------------------
   interface TeamRow {
     id: string;
+    org_id: string;
     name: string;
     scim_external_id: string | null;
     created_at: string;
   }
   async function groupOut(t: TeamRow, withMembers = true) {
-    const members = withMembers ? (await pool.query<{ id: string; name: string }>("SELECT id, name FROM users WHERE team_id = $1 ORDER BY name", [t.id])).rows : [];
+    const members = withMembers ? (await pool.query<{ id: string; name: string }>("SELECT id, name FROM users WHERE team_id = $1 AND org_id = $2 ORDER BY name", [t.id, t.org_id])).rows : [];
     return {
       schemas: [GROUP],
       id: t.id,
@@ -294,7 +299,7 @@ export async function scimRoutes(app: FastifyInstance): Promise<void> {
   }
   async function loadTeam(q: Queryable, orgId: string, id: string): Promise<TeamRow> {
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ScimError(404, "No such group.");
-    const r = await q.query<TeamRow>("SELECT id, name, scim_external_id, created_at FROM teams WHERE org_id = $1 AND id = $2", [orgId, id]);
+    const r = await q.query<TeamRow>("SELECT id, org_id, name, scim_external_id, created_at FROM teams WHERE org_id = $1 AND id = $2", [orgId, id]);
     if (!r.rows[0]) throw new ScimError(404, "No such group.");
     return r.rows[0];
   }
@@ -320,7 +325,7 @@ export async function scimRoutes(app: FastifyInstance): Promise<void> {
       else throw new ScimError(400, `Filtering on ${f.attr} is not supported.`, "invalidFilter");
     }
     const total = await pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM teams WHERE ${where}`, params);
-    const rows = await pool.query<TeamRow>(`SELECT id, name, scim_external_id, created_at FROM teams WHERE ${where} ORDER BY created_at, id OFFSET ${start - 1} LIMIT ${count}`, params);
+    const rows = await pool.query<TeamRow>(`SELECT id, org_id, name, scim_external_id, created_at FROM teams WHERE ${where} ORDER BY created_at, id OFFSET ${start - 1} LIMIT ${count}`, params);
     const withMembers = !(q.excludedAttributes ?? "").split(",").includes("members");
     return { schemas: [LIST], totalResults: total.rows[0]!.n, startIndex: start, itemsPerPage: rows.rows.length, Resources: await Promise.all(rows.rows.map((t) => groupOut(t, withMembers))) };
   });
@@ -335,7 +340,7 @@ export async function scimRoutes(app: FastifyInstance): Promise<void> {
     const t = await withTx(async (c) => {
       let r;
       try {
-        r = await c.query<TeamRow>("INSERT INTO teams (org_id, name, slug, scim_external_id) VALUES ($1,$2,$3,$4) RETURNING id, name, scim_external_id, created_at", [orgId, name.slice(0, 100), slug(name), body.externalId ?? null]);
+        r = await c.query<TeamRow>("INSERT INTO teams (org_id, name, slug, scim_external_id) VALUES ($1,$2,$3,$4) RETURNING id, org_id, name, scim_external_id, created_at", [orgId, name.slice(0, 100), slug(name), body.externalId ?? null]);
       } catch (e) {
         if ((e as { code?: string }).code === "23505") throw new ScimError(409, "A team with that name exists.", "uniqueness");
         throw e;

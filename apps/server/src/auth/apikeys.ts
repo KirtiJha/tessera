@@ -72,7 +72,14 @@ export async function principalFromApiKey(req: FastifyRequest): Promise<{ p: Pri
  * keys may not call it at all (sign-in, people, settings, SSO, devices...).
  */
 export function scopeFor(method: string, url: string): Scope | "any" | null {
-  const path = url.split("?")[0]!;
+  // Match the path the router will route: decoded, so %73ettings is "settings".
+  let path: string;
+  try {
+    path = decodeURIComponent(url.split("?")[0]!);
+  } catch {
+    return null;
+  }
+  if (path.includes("/../") || path.includes("//")) return null;
   // Who am I: any valid key may ask.
   if (path === "/api/auth/me" && method === "GET") return "any";
   const read = method === "GET" || method === "HEAD";

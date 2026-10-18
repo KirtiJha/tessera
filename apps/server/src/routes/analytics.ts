@@ -20,8 +20,10 @@ const Range = z.object({
 function range(q: z.infer<typeof Range>): { from: string; to: string; days: number } {
   const to = q.to ?? utcDay(Date.now());
   const from = q.from ?? utcDay(Date.parse(to) - ((q.days ?? 30) - 1) * 86_400_000);
+  // Real calendar dates only: "2026-02-31" parses to NaN or rolls over, either way it is refused.
+  for (const d of [from, to]) if (!Number.isFinite(Date.parse(d)) || utcDay(Date.parse(d)) !== d) throw Object.assign(new Error(`${d} is not a date.`), { statusCode: 400 });
   const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
-  if (days < 1 || days > 366) throw Object.assign(new Error("The range must be between 1 and 366 days."), { statusCode: 400 });
+  if (!Number.isFinite(days) || days < 1 || days > 366) throw Object.assign(new Error("The range must be between 1 and 366 days."), { statusCode: 400 });
   return { from, to, days };
 }
 
@@ -109,7 +111,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     const teamFilter = q.team ? ` AND s.team_id = $${base.push(q.team)}` : "";
     const key = groupExpr(q.groupBy, base, pattern);
     const FROM = `FROM usage_daily u JOIN sessions s ON s.org_id = u.org_id AND s.id = u.session_id
-                  LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN users o ON o.id = s.owner_id
+                  LEFT JOIN teams t ON t.id = s.team_id AND t.org_id = s.org_id LEFT JOIN users o ON o.id = s.owner_id
                  WHERE u.org_id = $1 AND u.day BETWEEN $2::date AND $3::date${teamFilter}`;
 
     const prevFrom = utcDay(Date.parse(from) - days * 86_400_000);
@@ -220,7 +222,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     const params: unknown[] = [p.orgId, from, to];
     const teamFilter = q.team ? ` AND s.team_id = $${params.push(q.team)}` : "";
     const FROM = `FROM usage_daily u JOIN sessions s ON s.org_id = u.org_id AND s.id = u.session_id
-                  LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN users o ON o.id = s.owner_id
+                  LEFT JOIN teams t ON t.id = s.team_id AND t.org_id = s.org_id LEFT JOIN users o ON o.id = s.owner_id
                  WHERE u.org_id = $1 AND u.day BETWEEN $2::date AND $3::date${teamFilter}`;
     let rows: unknown[][];
     if (q.detail === "sessions") {

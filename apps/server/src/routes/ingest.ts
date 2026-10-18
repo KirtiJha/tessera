@@ -139,7 +139,10 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
   /** Policy decision before a tool call. The reporter's PreToolUse hook asks and obeys. */
   app.post("/decide", { config: perDevice(3000) }, async (req) => {
     const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
-    return fleet.decide(device, DecideRequest.parse(req.body));
+    const body = DecideRequest.parse(req.body);
+    // Only the device's own person's sessions: a stop or decision must not be consumed by someone else's machine.
+    if (!(await fleet.ownedBy(device, body.sessionId))) return { decision: "allow", reason: null };
+    return fleet.decide(device, body);
   });
 
   /** Long-poll for deliveries while the reporter waits on a prompt. */
@@ -148,6 +151,7 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
     const { id } = req.params as { id: string };
     const waitMs = Math.min(25_000, Math.max(0, Number((req.query as { wait?: string }).wait ?? 0) * 1000));
     const deadline = Date.now() + waitMs;
+    if (!(await fleet.ownedBy(device, id))) return { deliveries: [], serverTime: new Date().toISOString() };
     for (;;) {
       const d = await fleet.pendingDeliveries(device.orgId, id);
       if (d.length || Date.now() >= deadline) return { deliveries: d, serverTime: new Date().toISOString() };
@@ -159,7 +163,7 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
     const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
     const { id } = req.params as { id: string };
     const body = z.object({ result: z.record(z.unknown()) }).parse(req.body);
-    const ok = await fleet.deliveryResult(device.orgId, id, body.result);
+    const ok = await fleet.deliveryResult(device.orgId, device.userId, id, body.result);
     return ok ? { ok: true } : reply.code(404).send({ error: "no such delivery" });
   });
 

@@ -217,7 +217,7 @@ describe.skipIf(!reachable)("single sign-on (OIDC)", () => {
     idp.user = { sub: `x-${suffix}`, email: `outsider-${suffix}@acme-sso.test` };
     const r = await signIn(idp.user.email);
     expect(r.session).toBeNull();
-    expect(decodeURIComponent(r.location)).toContain("another Tessera organisation");
+    expect(decodeURIComponent(r.location)).toContain("cannot sign in to this organisation");
   });
 
   it("rejects an ID token with the wrong nonce or audience, or an unverified email", async () => {
