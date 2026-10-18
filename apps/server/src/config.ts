@@ -50,6 +50,7 @@ export const config = {
   /** Reporter versions this server reads correctly (major.minor compared). */
   reporterSupport: { min: "0.1", max: "0.1" },
   webDist: process.env.WEB_DIST ?? "",
+  reporterTgz: process.env.REPORTER_TGZ ?? "",
 } as const;
 
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");

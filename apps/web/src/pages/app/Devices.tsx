@@ -60,6 +60,7 @@ export function Devices() {
   };
 
   const origin = enrol?.serverUrl ?? window.location.origin;
+  const npx = `npx -y --package=${origin}/downloads/tessera-reporter.tgz tessera-reporter`;
 
   return (
     <div className="mx-auto max-w-4xl p-5">
@@ -83,7 +84,7 @@ export function Devices() {
                   <span className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-1.5 font-mono text-[18px] font-semibold tracking-[0.12em] text-amber-400">{enrol.code}</span>
                   <span className="text-[12px] text-fog">expires in {Math.max(0, Math.round((enrol.expiresAt - Date.now()) / 60000))} min · the page refreshes when the machine appears below</span>
                 </div>
-                <Code>{`npx tessera-reporter enrol --server ${origin} --code ${enrol.code}`}</Code>
+                <Code>{`${npx} enrol --server ${origin} --code ${enrol.code}`}</Code>
               </>
             ) : (
               <p className="text-fog">Get a code first. It is valid for 15 minutes and works once.</p>
@@ -91,12 +92,12 @@ export function Devices() {
           </li>
           <li>
             <div className="mb-1.5 font-medium text-snow">2 · Install the Claude Code hooks</div>
-            <Code>{`npx tessera-reporter install`}</Code>
-            <p className="mt-1.5 text-[12.5px] text-fog">Adds Tessera's hooks to <span className="font-mono">~/.claude/settings.json</span> without touching anything else in it. <span className="font-mono">npx tessera-reporter uninstall</span> removes them.</p>
+            <Code>{`${npx} install`}</Code>
+            <p className="mt-1.5 text-[12.5px] text-fog">Copies the reporter to <span className="font-mono">~/.tessera/bin</span> and adds its hooks to <span className="font-mono">~/.claude/settings.json</span> without touching anything else there. Needs Node 20 or newer. Run it again with <span className="font-mono">uninstall</span> to remove the hooks.</p>
           </li>
           <li>
             <div className="mb-1.5 font-medium text-snow">3 · Start a Claude Code session</div>
-            <p className="text-fog">It appears on the live wall within two seconds of its first prompt. <span className="font-mono">npx tessera-reporter status</span> shows the connection from the machine's side.</p>
+            <p className="text-fog">It appears on the live wall within two seconds of its first prompt. <span className="font-mono">node ~/.tessera/bin/tessera-reporter.mjs status</span> shows the connection from the machine's side.</p>
           </li>
         </ol>
       </Panel>
@@ -135,7 +136,7 @@ export function Devices() {
         <p className="mb-3 text-[13.5px] text-mist">Copy it now. Tessera stores only a hash and cannot show it again.</p>
         <Code>{tokenModal?.token ?? ""}</Code>
         <p className="mt-3 text-[12.5px] text-fog">On the machine:</p>
-        <Code>{`npx tessera-reporter enrol --server ${origin} --token ${tokenModal?.token ?? ""}`}</Code>
+        <Code>{`${npx} enrol --server ${origin} --token ${tokenModal?.token ?? ""}`}</Code>
         <div className="mt-4 flex justify-end"><Button variant="primary" onClick={() => setTokenModal(null)}>I've saved it</Button></div>
       </Modal>
     </div>

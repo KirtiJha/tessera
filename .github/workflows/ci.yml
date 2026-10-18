@@ -40,5 +40,11 @@ jobs:
           cd apps/server && (node dist/index.js > server.log 2>&1 &) && sleep 4
           curl -fsS localhost:4700/api/health
           curl -fsS -o /dev/null -w "%{http_code}\n" localhost:4700/ | grep 200
+          curl -fsS -o /tmp/r.tgz localhost:4700/downloads/tessera-reporter.tgz && tar -tzf /tmp/r.tgz | grep tessera-reporter.mjs
+      - name: Reporter installs with npx from the server
+        run: |
+          export TESSERA_HOME=$RUNNER_TEMP/t CLAUDE_CONFIG_DIR=$RUNNER_TEMP/c && mkdir -p $CLAUDE_CONFIG_DIR
+          npx -y --package=http://localhost:4700/downloads/tessera-reporter.tgz tessera-reporter install
+          grep -q "tessera-reporter.mjs" $CLAUDE_CONFIG_DIR/settings.json
       - name: Container image
         run: docker build -t tessera:ci .

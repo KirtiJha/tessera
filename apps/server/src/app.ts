@@ -2,7 +2,7 @@ import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { join } from "node:path";
 import { ZodError } from "zod";
 import { principalFromRequest } from "./auth/session.js";
@@ -91,6 +91,16 @@ export async function buildApp(): Promise<App> {
 
   server.get("/api/health", async () => ({ ok: true, version: "0.1.0", time: new Date().toISOString() }));
   server.get("/api/*", async (_req, reply) => reply.code(404).send({ error: "not found" }));
+
+  // The reporter, served by the server itself so machines install the version that matches it.
+  const reporterTgz = config.reporterTgz || join(process.cwd(), "..", "..", "packages", "reporter-claude", "release", "tessera-reporter.tgz");
+  server.get("/downloads/tessera-reporter.tgz", async (_req, reply) => {
+    if (!existsSync(reporterTgz)) return reply.code(404).send({ error: "reporter package not built on this server" });
+    reply.header("content-type", "application/gzip");
+    reply.header("cache-control", "no-cache");
+    reply.header("content-disposition", 'attachment; filename="tessera-reporter.tgz"');
+    return reply.send(createReadStream(reporterTgz));
+  });
 
   const dist = config.webDist || join(process.cwd(), "..", "web", "dist");
   if (existsSync(join(dist, "index.html"))) {

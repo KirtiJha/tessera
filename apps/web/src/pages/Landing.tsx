@@ -160,8 +160,8 @@ export function Landing() {
           <div className="mt-10 grid gap-6 lg:grid-cols-3">
             {[
               { n: "1", t: "Run the server", c: "docker compose up -d\n# or: pnpm start, with DATABASE_URL set", d: "Postgres is the only requirement. Redis is optional, for more than one replica." },
-              { n: "2", t: "Enrol a machine", c: "npx tessera-reporter enrol \\\n  --server https://tessera.example.com", d: "Paste the one-time code from Devices in the console. The machine gets its own token." },
-              { n: "3", t: "Install the hooks", c: "npx tessera-reporter install", d: "Adds the hooks to ~/.claude/settings.json. Your next Claude Code session appears on the wall." },
+              { n: "2", t: "Enrol a machine", c: "TESSERA=https://tessera.example.com\nnpx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter enrol --server $TESSERA --code XXXX-XXXX", d: "Your server hands out the reporter itself. The one-time code comes from Devices in the console, which shows this command with your address filled in." },
+              { n: "3", t: "Install the hooks", c: "npx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter install", d: "Adds the hooks to ~/.claude/settings.json and keeps the rest of it. Your next Claude Code session appears on the wall." },
             ].map((s) => (
               <div key={s.n} className="rounded-2xl border border-line bg-slate-1 p-6">
                 <div className="flex items-center gap-3">

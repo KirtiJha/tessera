@@ -8,11 +8,12 @@
     "tessera-reporter": "./bin/tessera-reporter.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/pack.mjs",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "lint": "echo ok"
+    "lint": "echo ok",
+    "pack:release": "node scripts/pack.mjs"
   },
   "dependencies": {
     "@tessera/contract": "workspace:*"
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@types/node": "^22.18.8",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "esbuild": "^0.25.10"
   }
 }

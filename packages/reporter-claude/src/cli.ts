@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, HOME, VERSION, loadConfig, log, newMachineId, saveConfig, shortHostname } from "./config.js";
 import { handle, type HookInput } from "./hooks.js";
@@ -21,16 +21,31 @@ const EVENTS: Array<[string, number]> = [
   ["SessionEnd", 5],
 ];
 
-const OURS = /tessera-reporter(?:\.js\\?"?)?\s+hook\b/;
+const OURS = /tessera-reporter(?:\.m?js)?\\?"?\s+hook\b/;
 const isOurs = (cmd: string | undefined): boolean => !!cmd && OURS.test(cmd);
 
 function settingsPath(): string {
   return join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
 }
 
-function binPath(): string {
-  // The bin that launched us, as an absolute path, so the hook command works from any cwd.
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "bin", "tessera-reporter.js");
+/**
+ * The script the hooks should run. When we are the bundled single-file reporter
+ * (installed with npx from a Tessera server), copy ourselves to ~/.tessera/bin
+ * so the hooks survive npx clearing its cache. From a source checkout, point at
+ * the checkout's bin.
+ */
+function installBin(): string {
+  const self = fileURLToPath(import.meta.url);
+  if (basename(self) === "tessera-reporter.mjs") {
+    const dest = join(HOME, "bin", "tessera-reporter.mjs");
+    if (resolve(self) !== resolve(dest)) {
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(self, dest);
+      chmodSync(dest, 0o755);
+    }
+    return dest;
+  }
+  return resolve(dirname(self), "..", "bin", "tessera-reporter.js");
 }
 
 function readStdin(): Promise<string> {
@@ -98,7 +113,7 @@ export async function main(args: string[]): Promise<void> {
       mkdirSync(dirname(p), { recursive: true });
       const settings: Record<string, unknown> = existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>) : {};
       const hooks = (settings.hooks ??= {}) as Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string; timeout?: number }> }>>;
-      const bin = binPath();
+      const bin = installBin();
       let added = 0;
       for (const [ev, timeout] of EVENTS) {
         const list = (hooks[ev] ??= []);

@@ -21,10 +21,11 @@ WORKDIR /app
 RUN addgroup -S tessera && adduser -S tessera -G tessera
 COPY --from=build /out/server /app/server
 COPY --from=build /src/apps/web/dist /app/web/dist
+COPY --from=build /src/packages/reporter-claude/release/tessera-reporter.tgz /app/downloads/tessera-reporter.tgz
 COPY --from=build /src/packages/contract/dist /app/server/node_modules/@tessera/contract/dist
 COPY --from=build /src/packages/contract/package.json /app/server/node_modules/@tessera/contract/package.json
 USER tessera
-ENV PORT=4700 HOST=0.0.0.0 WEB_DIST=/app/web/dist
+ENV PORT=4700 HOST=0.0.0.0 WEB_DIST=/app/web/dist REPORTER_TGZ=/app/downloads/tessera-reporter.tgz
 EXPOSE 4700
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:4700/api/health || exit 1
 WORKDIR /app/server

@@ -41,15 +41,19 @@ Production from source: `pnpm build` then `pnpm start`; the server serves the bu
 
 ## Put a session on the wall
 
-1. In the console, open **Devices** and get an enrolment code.
+Every Tessera server hands out the reporter itself at `/downloads/tessera-reporter.tgz`: one file, no dependencies, always the version that matches the server. Machines need Node 20 or newer.
+
+1. In the console, open **Devices** and get an enrolment code. The page shows the commands below with your address filled in.
 2. On the machine that runs Claude Code:
    ```sh
-   pnpm --filter @tessera/reporter-claude build     # once, from this repo (npm package to follow)
-   node packages/reporter-claude/bin/tessera-reporter.js enrol --server https://tessera.example.com --code XXXX-XXXX
-   node packages/reporter-claude/bin/tessera-reporter.js install
+   TESSERA=https://tessera.example.com
+   npx -y --package=$TESSERA/downloads/tessera-reporter.tgz tessera-reporter enrol --server $TESSERA --code XXXX-XXXX
+   npx -y --package=$TESSERA/downloads/tessera-reporter.tgz tessera-reporter install
    ```
-   `install` adds Tessera's hooks to `~/.claude/settings.json` without touching anything else there. `status` shows the connection; `uninstall` removes the hooks.
+   `install` copies the reporter to `~/.tessera/bin` and adds its hooks to `~/.claude/settings.json` without touching anything else there. Afterwards, `node ~/.tessera/bin/tessera-reporter.mjs status` shows the connection and `… uninstall` removes the hooks.
 3. Start a Claude Code session. It appears within two seconds of its first prompt.
+
+For CI runners, issue a token in **Devices → Issue a token by hand** and use `enrol --server $TESSERA --token tsr_…` instead of a code.
 
 ### What the reporter sends, and when
 
