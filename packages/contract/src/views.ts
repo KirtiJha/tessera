@@ -97,10 +97,15 @@ export interface FleetSnapshot {
   recentEvents: EventView[];
 }
 
+/**
+ * Messages on the console stream. Session changes and new events are batched
+ * per organisation and flushed together (every 500 ms by default), so a busy
+ * fleet sends a few messages a second instead of one per report.
+ */
 export type StreamMessage =
   | { type: "snapshot"; data: FleetSnapshot }
-  | { type: "session"; data: SessionView }
+  | { type: "sessions"; data: SessionView[] }
+  | { type: "events"; data: EventView[] }
   | { type: "removed"; data: { id: string } }
-  | { type: "event"; data: EventView }
   | { type: "kpis"; data: Kpis }
   | { type: "tick"; data: { serverTime: string } };

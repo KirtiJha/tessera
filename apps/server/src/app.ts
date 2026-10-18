@@ -14,6 +14,7 @@ import { authRoutes } from "./routes/auth.js";
 import { enrolRoutes } from "./routes/enrol.js";
 import { fleetRoutes } from "./routes/fleet.js";
 import { ingestRoutes } from "./routes/ingest.js";
+import { metrics, metricsRoutes } from "./metrics.js";
 
 export interface App {
   server: FastifyInstance;
@@ -89,6 +90,9 @@ export async function buildApp(): Promise<App> {
   await server.register(fleetRoutes, { prefix: "/api/fleet", fleet, hub });
   await server.register(adminRoutes, { prefix: "/api/admin" });
 
+  await server.register(metricsRoutes);
+  metrics.liveSessions = () => fleet.totalLive();
+  metrics.streamClients = () => hub.clientCount();
   server.get("/api/health", async () => ({ ok: true, version: "0.1.0", time: new Date().toISOString() }));
   server.get("/api/*", async (_req, reply) => reply.code(404).send({ error: "not found" }));
 

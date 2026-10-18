@@ -1,12 +1,12 @@
 import type { SessionView } from "@tessera/contract";
-import { motion } from "framer-motion";
+import { memo } from "react";
 import { Link } from "react-router-dom";
 import { sessionKind, sessionLabel, type SessionKind } from "../lib/fleet";
 import { ago, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../lib/format";
 
 export const KIND: Record<SessionKind, { color: string; bg: string; label: string }> = {
   running: { color: "var(--color-teal-400)", bg: "rgba(45,212,191,0.10)", label: "Running" },
-  waiting: { color: "var(--color-amber-400)", bg: "rgba(245,165,36,0.12)", label: "Waiting on you" },
+  waiting: { color: "var(--color-amber-400)", bg: "rgba(245,165,36,0.12)", label: "Waiting" },
   background: { color: "var(--color-violet-400)", bg: "rgba(167,139,250,0.10)", label: "Background work" },
   stale: { color: "var(--color-fog)", bg: "rgba(139,151,166,0.10)", label: "Silent" },
   done: { color: "var(--color-fog)", bg: "rgba(139,151,166,0.08)", label: "Ended" },
@@ -36,7 +36,7 @@ export function ContextBar({ used, window: w, blowouts }: { used: number; window
   return (
     <div className="flex items-center gap-2" title={`${fmtTokens(used)} of ${fmtTokens(w)} context`}>
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-3">
-        <motion.div className="h-full rounded-full" animate={{ width: `${pct}%`, backgroundColor: color }} transition={{ duration: 0.6 }} />
+        <div className="h-full rounded-full transition-[width,background-color] duration-500 ease-out" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
       <span className="w-9 text-right text-[11.5px] text-fog">{pct}%</span>
       {blowouts > 0 ? <span className="rounded-sm bg-rose-600/30 px-1 text-[10.5px] font-semibold text-rose-400" title={`${blowouts} context blowout${blowouts > 1 ? "s" : ""}`}>×{blowouts}</span> : null}
@@ -52,7 +52,7 @@ export function AgentStrip({ s }: { s: SessionView }) {
       {agents.slice(0, 24).map((a) => (
         <span
           key={a.id}
-          className={`h-3 w-3 rounded-[3px] ${a.status === "running" ? "bg-teal-400 dot-live" : a.status === "failed" ? "bg-rose-400" : a.status === "aborted" ? "bg-amber-500" : "bg-slate-3"}`}
+          className={`h-3 w-3 rounded-[3px] ${a.status === "running" ? "bg-teal-400" : a.status === "failed" ? "bg-rose-400" : a.status === "aborted" ? "bg-amber-500" : "bg-slate-3"}`}
           title={`${a.type ?? a.kind}: ${a.status}${a.description ? ` — ${a.description}` : ""}`}
         />
       ))}
@@ -61,7 +61,13 @@ export function AgentStrip({ s }: { s: SessionView }) {
   );
 }
 
-export function SessionCard({ s, now, flash }: { s: SessionView; now: number; flash?: boolean }) {
+/**
+ * One session tile. Memoised: a card re-renders only when its session object,
+ * the second it shows, or its new state changes. `isNew` animates the card in
+ * once (CSS, no JavaScript per frame) when the session first appears; a card
+ * scrolled into view on a virtualized wall appears without animation.
+ */
+export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: SessionView; now: number; isNew?: boolean }) {
   const kind = sessionKind(s);
   const k = KIND[kind];
   const plan = s.plan?.steps ?? [];
@@ -71,10 +77,10 @@ export function SessionCard({ s, now, flash }: { s: SessionView; now: number; fl
   const elapsed = (s.endedAt ? Date.parse(s.endedAt) : now) - Date.parse(s.startedAt);
 
   return (
-    <motion.div layout initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}>
+    <div className={isNew ? "tile-enter" : undefined}>
       <Link
         to={`/app/sessions/${encodeURIComponent(s.id)}`}
-        className={`block overflow-hidden rounded-xl border bg-slate-1 shadow-tile transition-colors hover:border-line-2 ${kind === "waiting" ? "breathe border-amber-400/50" : "border-line"} ${flash ? "ring-1 ring-teal-400/40" : ""}`}
+        className={`relative block overflow-hidden rounded-xl border bg-slate-1 shadow-tile transition-colors hover:border-line-2 ${kind === "waiting" ? "breathe border-amber-400/50" : "border-line"}`}
         style={{ borderTopColor: k.color, borderTopWidth: 3 }}
       >
         <div className="px-4 pt-3">
@@ -110,6 +116,6 @@ export function SessionCard({ s, now, flash }: { s: SessionView; now: number; fl
           <div className="py-2"><div className="text-[13px] font-semibold text-snow">{fmtDuration(elapsed)}</div><div className="text-[10.5px] text-fog">elapsed</div></div>
         </div>
       </Link>
-    </motion.div>
+    </div>
   );
-}
+});

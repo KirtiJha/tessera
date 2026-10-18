@@ -22,6 +22,7 @@ function windowStartSql(window: Budget["window"]): string {
 }
 
 const cache = new Map<string, { statuses: BudgetStatus[]; until: number }>();
+const inflight = new Map<string, Promise<BudgetStatus[]>>();
 
 export function invalidateBudgets(orgId: string): void {
   cache.delete(orgId);
@@ -66,9 +67,24 @@ async function spendFor(orgId: string, b: Budget): Promise<{ windowStart: string
   return { windowStart: row?.window_start ?? new Date().toISOString(), spent: Number(row?.spent ?? 0) };
 }
 
+/**
+ * Current spend against every budget of an org, cached for 15 s. One refresh
+ * runs at a time per org; while it runs, callers get the previous figures (or
+ * share the refresh when there are none yet), so cache expiry under load is
+ * one query, not one per in-flight report.
+ */
 export async function budgetStatuses(orgId: string): Promise<BudgetStatus[]> {
   const hit = cache.get(orgId);
   if (hit && hit.until > Date.now()) return hit.statuses;
+  let p = inflight.get(orgId);
+  if (!p) {
+    p = computeStatuses(orgId).finally(() => inflight.delete(orgId));
+    inflight.set(orgId, p);
+  }
+  return hit ? hit.statuses : p;
+}
+
+async function computeStatuses(orgId: string): Promise<BudgetStatus[]> {
   const budgets = await listBudgets(orgId);
   const statuses: BudgetStatus[] = [];
   for (const b of budgets) {

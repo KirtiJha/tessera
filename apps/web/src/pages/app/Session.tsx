@@ -208,7 +208,7 @@ export function SessionPage() {
             </div>
           </div>
           <div className="w-56">
-            <div className="text-[11.5px] text-fog">Tokens per report · last 2 h</div>
+            <div className="text-[11.5px] text-fog">Tokens per minute · last 2 h</div>
             <Sparkline values={tokSeries.length ? tokSeries : [0, 0]} height={44} />
           </div>
         </div>

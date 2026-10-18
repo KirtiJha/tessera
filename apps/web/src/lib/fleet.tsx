@@ -8,15 +8,13 @@ export interface FleetState {
   sessions: Map<string, SessionView>;
   kpis: Kpis | null;
   events: EventView[];
-  /** ids of sessions that changed in the last tick (for a brief flash) */
-  touched: Set<string>;
 }
 
 type Action =
   | { type: "connected"; value: boolean }
   | { type: "msg"; msg: StreamMessage };
 
-const EMPTY: FleetState = { connected: false, serverTime: null, config: null, sessions: new Map(), kpis: null, events: [], touched: new Set() };
+const EMPTY: FleetState = { connected: false, serverTime: null, config: null, sessions: new Map(), kpis: null, events: [] };
 
 function reducer(state: FleetState, action: Action): FleetState {
   if (action.type === "connected") return { ...state, connected: action.value };
@@ -24,14 +22,13 @@ function reducer(state: FleetState, action: Action): FleetState {
   switch (m.type) {
     case "snapshot": {
       const sessions = new Map(m.data.sessions.map((s) => [s.id, s]));
-      return { ...state, connected: true, serverTime: m.data.serverTime, config: m.data.config, sessions, kpis: m.data.kpis, events: m.data.recentEvents, touched: new Set() };
+      return { ...state, connected: true, serverTime: m.data.serverTime, config: m.data.config, sessions, kpis: m.data.kpis, events: m.data.recentEvents };
     }
-    case "session": {
+    case "sessions": {
+      if (!m.data.length) return state;
       const sessions = new Map(state.sessions);
-      sessions.set(m.data.id, m.data);
-      const touched = new Set(state.touched);
-      touched.add(m.data.id);
-      return { ...state, sessions, touched };
+      for (const s of m.data) sessions.set(s.id, s);
+      return { ...state, sessions };
     }
     case "removed": {
       if (!state.sessions.has(m.data.id)) return state;
@@ -39,14 +36,16 @@ function reducer(state: FleetState, action: Action): FleetState {
       sessions.delete(m.data.id);
       return { ...state, sessions };
     }
-    case "event": {
-      if (state.events.some((e) => e.id === m.data.id && e.sessionId === m.data.sessionId)) return state;
-      return { ...state, events: [m.data, ...state.events].slice(0, 300) };
+    case "events": {
+      const seen = new Set(state.events.map((e) => `${e.sessionId}:${e.id}`));
+      const fresh = m.data.filter((e) => !seen.has(`${e.sessionId}:${e.id}`)).reverse();
+      if (!fresh.length) return state;
+      return { ...state, events: [...fresh, ...state.events].slice(0, 300) };
     }
     case "kpis":
       return { ...state, kpis: m.data };
     case "tick":
-      return { ...state, serverTime: m.data.serverTime, touched: state.touched.size ? new Set() : state.touched };
+      return { ...state, serverTime: m.data.serverTime };
     default:
       return state;
   }
@@ -82,7 +81,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
           armSilence();
           dispatch({ type: "msg", msg: { type, data: JSON.parse((ev as MessageEvent).data) } as StreamMessage });
         });
-      (["snapshot", "session", "removed", "event", "kpis", "tick"] as const).forEach(on);
+      (["snapshot", "sessions", "removed", "events", "kpis", "tick"] as const).forEach(on);
       es.onopen = () => dispatch({ type: "connected", value: true });
       es.onerror = () => {
         dispatch({ type: "connected", value: false });
