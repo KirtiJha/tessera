@@ -137,3 +137,42 @@ export function Empty({ title, body, action }: { title: string; body: string; ac
 export function Spinner({ className = "" }: { className?: string }) {
   return <span className={`inline-block h-5 w-5 animate-spin rounded-full border-2 border-fog border-t-transparent ${className}`} />;
 }
+
+/** A list of short values typed as chips: Enter, comma or Tab adds one; Backspace on empty removes the last. */
+export function TagInput({ value, onChange, placeholder, suggestions = [], mono = true, id }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string; suggestions?: string[]; mono?: boolean; id?: string }) {
+  const [draft, setDraft] = useState("");
+  const add = (raw: string) => {
+    const v = raw.trim();
+    if (v && !value.includes(v)) onChange([...value, v]);
+    setDraft("");
+  };
+  const listId = id ? `${id}-suggestions` : undefined;
+  return (
+    <div className="flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-lg border border-line-2 bg-ink-2 px-2 py-1.5 focus-within:border-teal-400">
+      {value.map((v) => (
+        <span key={v} className={`inline-flex items-center gap-1 rounded-md bg-slate-3 px-2 py-0.5 text-[12px] text-snow ${mono ? "font-mono" : ""}`}>
+          {v}
+          <button type="button" onClick={() => onChange(value.filter((x) => x !== v))} className="text-fog hover:text-rose-400" aria-label={`Remove ${v}`}>
+            <X size={12} />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        list={listId}
+        value={draft}
+        onChange={(e) => (e.target.value.endsWith(",") ? add(e.target.value.slice(0, -1)) : setDraft(e.target.value))}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === "Tab") && draft.trim()) {
+            e.preventDefault();
+            add(draft);
+          } else if (e.key === "Backspace" && !draft && value.length) onChange(value.slice(0, -1));
+        }}
+        onBlur={() => draft.trim() && add(draft)}
+        placeholder={value.length ? "" : placeholder}
+        className={`min-w-[8rem] flex-1 bg-transparent px-1 text-[13px] text-snow placeholder:text-ash focus:outline-none ${mono ? "font-mono" : ""}`}
+      />
+      {listId && suggestions.length ? <datalist id={listId}>{suggestions.map((s) => <option key={s} value={s} />)}</datalist> : null}
+    </div>
+  );
+}

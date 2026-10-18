@@ -1,4 +1,4 @@
-import { Activity, BellRing, KeyRound, Clock, DollarSign, Laptop, LogOut, PiggyBank, ScrollText, Settings, Tag, Users, Wallet } from "lucide-react";
+import { Activity, BellRing, KeyRound, ShieldCheck, Clock, DollarSign, Laptop, LogOut, PiggyBank, ScrollText, Settings, Tag, Users, Wallet } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Mark, Wordmark } from "../../components/Logo";
 import { useAuth } from "../../lib/auth";
@@ -33,6 +33,7 @@ function Nav() {
           <nav className="mt-1 space-y-0.5">
             {link("/app/people", <Users size={16} />, "People and teams")}
             {link("/app/budgets", <PiggyBank size={16} />, "Budgets")}
+            {link("/app/policies", <ShieldCheck size={16} />, "Policies")}
             {link("/app/prices", <Tag size={16} />, "Model prices")}
             {link("/app/notifications", <BellRing size={16} />, "Notifications")}
             {link("/app/sso", <KeyRound size={16} />, "Single sign-on")}

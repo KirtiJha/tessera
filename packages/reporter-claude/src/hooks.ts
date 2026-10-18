@@ -1,4 +1,4 @@
-import { clean, type ReportAck } from "@tessera/contract";
+import { clean, type DecideRequest, type DecideResponse, type ReportAck } from "@tessera/contract";
 import { log, type Config } from "./config.js";
 import { addEvent, deleteState, loadState, saveState, type AgentState, type SessionState } from "./state.js";
 import { advance, newCursor } from "./transcript.js";
@@ -40,6 +40,21 @@ function toolSummary(tool: string | undefined, input: Record<string, unknown> | 
   if (typeof i.pattern === "string") return `${tool}(${clean(i.pattern, 120)})`;
   if (typeof i.url === "string") return `${tool}(${clean(i.url, 120)})`;
   return tool;
+}
+
+/**
+ * What the policy check needs to know about a tool call: the command, the
+ * paths and the URL it touches. Redacted here, before it leaves the machine.
+ */
+export function decideRequest(sessionId: string, tool: string, input: Record<string, unknown> | undefined): DecideRequest {
+  const i = input ?? {};
+  const req: DecideRequest = { sessionId, tool };
+  if (typeof i.command === "string") req.command = clean(i.command, 2000);
+  const paths = [i.file_path, i.path, i.notebook_path].filter((p): p is string => typeof p === "string" && p.length > 0);
+  if (Array.isArray(i.edits)) for (const e of i.edits) if (e && typeof (e as { file_path?: unknown }).file_path === "string") paths.push((e as { file_path: string }).file_path);
+  if (paths.length) req.paths = [...new Set(paths)].slice(0, 20).map((p) => clean(p, 400));
+  if (typeof i.url === "string") req.url = clean(i.url, 1000);
+  return req;
 }
 
 function refreshTranscripts(s: SessionState): void {
@@ -109,10 +124,14 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           if (a) a.skills = [...new Set([...a.skills, String(input.tool_input.skill)])];
         }
         if (cfg) {
-          const d = await post<{ decision: "allow" | "deny"; reason: string | null }>(cfg, "/api/ingest/decide", { sessionId: sid, tool }, 1500);
+          const d = await post<DecideResponse>(cfg, "/api/ingest/decide", decideRequest(sid, tool, input.tool_input), 1500);
           if (d?.decision === "deny") {
             addEvent(s, "note", `Tessera denied ${toolSummary(tool, input.tool_input)}: ${d.reason ?? "policy"}`, agentId);
             output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason ?? "Denied by Tessera policy." } };
+          } else if (d?.decision === "ask") {
+            // Force the permission prompt, which Tessera then shows on the wall and in Slack.
+            addEvent(s, "note", `Tessera requires approval for ${toolSummary(tool, input.tool_input)}: ${d.reason ?? "policy"}`, agentId);
+            output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: d.reason ?? "Tessera policy asks for approval." } };
           }
         }
         break;
