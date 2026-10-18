@@ -1,4 +1,5 @@
 import type {
+  Action,
   AgentKind,
   AgentStatus,
   ChangedFile,
@@ -49,6 +50,8 @@ export interface SessionView {
   assignee: { id: string; name: string } | null;
   /** A stop was requested from Tessera and not yet applied. */
   stopRequested: boolean;
+  /** The most recent tool calls, newest last. */
+  activity: Action[];
 }
 
 export interface AgentView {

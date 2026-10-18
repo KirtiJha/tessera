@@ -1,4 +1,4 @@
-import type { AgentReport, ChangedFile, GitInfo, OpenAsk, Plan, SessionStatus, TokenCounts, ModelUsage, WaitReason } from "@tessera/contract";
+import type { Action, AgentReport, ChangedFile, GitInfo, OpenAsk, Plan, SessionStatus, TokenCounts, ModelUsage, WaitReason } from "@tessera/contract";
 
 /** The server's own record of a session: what the reporter said plus what the server knows. */
 export interface SessionRecord {
@@ -37,6 +37,8 @@ export interface SessionRecord {
   continuedFrom: string | null;
   control: SessionControl;
   agents: AgentReport[];
+  /** The most recent tool calls, newest last (rows from before the column lack it). */
+  activity?: Action[];
 }
 
 /** What people in Tessera have done to a session, kept on the server (rows from before a field existed lack it). */

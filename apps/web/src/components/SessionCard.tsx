@@ -1,5 +1,6 @@
-import type { SessionView } from "@tessera/contract";
+import { riskForAsk, type SessionView } from "@tessera/contract";
 import { memo } from "react";
+import { RiskChips } from "./Approval";
 import { Link } from "react-router-dom";
 import { sessionKind, sessionLabel, type SessionKind } from "../lib/fleet";
 import { ago, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../lib/format";
@@ -78,6 +79,9 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: Ses
   const runningAgents = s.agents.filter((a) => a.status === "running" && a.kind !== "orchestrator").length;
   const failed = s.agents.filter((a) => a.status === "failed").length;
   const elapsed = (s.endedAt ? Date.parse(s.endedAt) : now) - Date.parse(s.startedAt);
+  const activity = s.activity ?? [];
+  const current = kind === "running" ? [...activity].reverse().find((a) => a.status === "running") ?? activity.at(-1) : null;
+  const risk = s.openAsk ? riskForAsk(s.openAsk.tool, s.openAsk.detail, s.cwd) : [];
 
   return (
     <div className={isNew ? "tile-enter" : undefined}>
@@ -104,6 +108,13 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: Ses
             {failed ? <span className="ml-auto text-rose-400">{failed} failed</span> : null}
           </div>
           {s.openAsk ? <div className="mt-1.5 line-clamp-2 text-[12.5px] leading-snug text-mist">{s.openAsk.tool ? <span className="font-mono text-[11.5px]">{s.openAsk.tool} · </span> : null}{s.openAsk.prompt}</div> : null}
+          {risk.length ? <div className="mt-1.5"><RiskChips flags={risk} compact /></div> : null}
+          {current && !s.openAsk ? (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-mist">
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${current.status === "running" ? "bg-teal-400 dot-live" : current.status === "failed" ? "bg-rose-400" : "bg-slate-3"}`} />
+              <span className="truncate font-mono text-[11.5px]" title={current.summary}>{current.status === "running" ? "" : current.status === "failed" ? "failed: " : "last: "}{current.summary}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-3 space-y-2 px-4">

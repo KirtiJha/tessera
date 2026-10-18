@@ -33,7 +33,7 @@ const base: SessionView = {
   agents: [],
   openAsk: null,
   tags: {},
-  continuedFrom: null, assignee: null, stopRequested: false,
+  continuedFrom: null, assignee: null, stopRequested: false, activity: [],
 };
 
 describe("sessionKind", () => {

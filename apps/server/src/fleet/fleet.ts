@@ -1,4 +1,4 @@
-import { applyDlp, clean, totalTokens, type DecideRequest, type DecideResponse, type ActivityEvent, type EventView, type FleetSnapshot, type Report, type ReportAck, type SessionView } from "@tessera/contract";
+import { applyDlp, clean, riskForAsk, totalTokens, type DecideRequest, type DecideResponse, type ActivityEvent, type EventView, type FleetSnapshot, type Report, type ReportAck, type SessionView } from "@tessera/contract";
 import type { FastifyBaseLogger } from "fastify";
 import type { DevicePrincipal } from "../auth/devices.js";
 import { config } from "../config.js";
@@ -72,6 +72,40 @@ function sanitise(r: Report, data: DataSettings = DEFAULT_DATA): void {
   if (s.openAsk) {
     s.openAsk.prompt = t(s.openAsk.prompt, 4000);
     s.openAsk.options = s.openAsk.options.map((o) => t(o, 300));
+    const d = s.openAsk.detail;
+    if (d) {
+      d.command = d.command && t(d.command, 4000);
+      d.description = d.description && t(d.description, 500);
+      d.url = d.url && t(d.url, 1000);
+      d.paths = d.paths.map((p) => t(p, 400));
+      d.rationale = data.excerpts ? d.rationale && t(d.rationale, 1500) : null;
+      d.forcedBy = d.forcedBy && t(d.forcedBy, 400);
+      for (const e of d.edits) {
+        e.path = t(e.path, 400);
+        e.before = t(e.before, 6000);
+        e.after = t(e.after, 6000);
+      }
+      if (d.write) {
+        d.write.path = t(d.write.path, 400);
+        d.write.excerpt = t(d.write.excerpt, 6000);
+      }
+      for (const r of d.suggestedRules) {
+        r.tool = t(r.tool, 120);
+        r.content = r.content && t(r.content, 300);
+      }
+      for (const q of d.questions) {
+        q.question = t(q.question, 1000);
+        q.header = q.header && t(q.header, 60);
+        for (const o of q.options) {
+          o.label = t(o.label, 300);
+          o.description = o.description && t(o.description, 500);
+        }
+      }
+    }
+  }
+  for (const a of s.activity) {
+    a.summary = t(a.summary, 300);
+    a.error = a.error && t(a.error, 300);
   }
   for (const a of s.agents) {
     a.description = a.description && t(a.description, 400);
@@ -84,6 +118,30 @@ function sanitise(r: Report, data: DataSettings = DEFAULT_DATA): void {
   }
   for (const e of r.events) e.text = t(e.text, 500);
   for (const k of Object.keys(s.tags)) s.tags[k] = t(s.tags[k] ?? "", 200);
+}
+
+/** What a chat message says about an open prompt: the prompt, then the agent's reason and the risk flags. */
+export function waitingText(rec: SessionRecord): string {
+  const ask = rec.openAsk;
+  if (!ask) return `Reason: ${rec.waitReason ?? "input"}`;
+  const lines = [ask.prompt.slice(0, 500)];
+  const d = ask.detail;
+  if (d?.command && d.command.length > ask.prompt.length - 6) lines[0] = `\`${d.command.slice(0, 500)}\``;
+  if (d?.rationale) lines.push(`_${d.rationale.slice(0, 300)}_`);
+  const risk = riskForAsk(ask.tool, d, rec.cwd);
+  if (risk.length) lines.push(`⚠ ${risk.map((f) => f.label).join(" · ")}`);
+  if (d?.forcedBy) lines.push(`Policy: ${d.forcedBy.slice(0, 200)}`);
+  return lines.join("\n").slice(0, 1500);
+}
+
+function waitingFields(rec: SessionRecord): Record<string, string> {
+  const d = rec.openAsk?.detail;
+  const out: Record<string, string> = {};
+  if (d?.edits.length) out.Files = d.edits.map((e) => e.path).slice(0, 5).join(", ").slice(0, 300);
+  else if (d?.write) out.File = `${d.write.path} (${d.write.lines} lines)`.slice(0, 300);
+  const last = (rec.activity ?? []).filter((a) => a.status !== "running").slice(-3).map((a) => a.summary.slice(0, 80));
+  if (last.length) out["Just before"] = last.join(" → ").slice(0, 300);
+  return out;
 }
 
 /** One key per thing a session waits on: the open prompt's id, else the wait reason. */
@@ -251,6 +309,7 @@ export class Fleet {
       continuedFrom: s.continuedFrom,
       control: existing?.control ?? { paused: false, reason: null, by: null },
       agents: s.agents,
+      activity: s.activity,
     };
     if (rec.status === "ended" && !rec.endedAt) rec.endedAt = now;
     // A stop that never met a tool call is moot once the turn is over.
@@ -342,9 +401,9 @@ export class Fleet {
         event: "session.waiting",
         dedupeKey: waitKey,
         title: `${label} is waiting on ${owner}`,
-        text: rec.openAsk ? rec.openAsk.prompt.slice(0, 500) : `Reason: ${rec.waitReason ?? "input"}`,
+        text: waitingText(rec),
         sessionId: rec.id,
-        fields: { Owner: rec.ownerName ?? "unknown", ...(rec.control.assignee ? { "Handed to": rec.control.assignee.name } : {}), Model: rec.model ?? "—", Machine: rec.hostname ?? "—", ...(rec.openAsk?.tool ? { Tool: rec.openAsk.tool } : {}) },
+        fields: { Owner: rec.ownerName ?? "unknown", ...(rec.control.assignee ? { "Handed to": rec.control.assignee.name } : {}), Model: rec.model ?? "—", Machine: rec.hostname ?? "—", ...(rec.openAsk?.tool ? { Tool: rec.openAsk.tool } : {}), ...waitingFields(rec) },
         ...(rec.openAsk ? { ask: { id: rec.openAsk.id, kind: rec.openAsk.kind } } : {}),
       };
       this.waiting.set(waitKey, { orgId, sessionId: rec.id, since: Date.now(), n });

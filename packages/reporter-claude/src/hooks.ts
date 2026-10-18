@@ -1,6 +1,6 @@
-import { clean, type DecideRequest, type DecideResponse, type ReportAck } from "@tessera/contract";
+import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Question, type ReportAck, type SuggestedRule } from "@tessera/contract";
 import { log, type Config } from "./config.js";
-import { addEvent, deleteState, loadState, saveState, type AgentState, type SessionState } from "./state.js";
+import { addEvent, deleteState, endAction, loadState, saveState, startAction, type AgentState, type SessionState } from "./state.js";
 import { advance, newCursor } from "./transcript.js";
 import { get, gitInfo, post, sendReport } from "./transport.js";
 
@@ -26,6 +26,15 @@ export interface HookInput {
   trigger?: string;
   reason?: string;
   permission_suggestions?: unknown[];
+  duration_ms?: number;
+}
+
+/** A permission update entry, as Claude Code suggests them and accepts them back. */
+interface PermissionUpdate {
+  type: string;
+  rules?: { toolName: string; ruleContent?: string }[];
+  behavior?: string;
+  destination?: string;
 }
 
 type Delivery = ReportAck["deliveries"][number];
@@ -55,6 +64,69 @@ export function decideRequest(sessionId: string, tool: string, input: Record<str
   if (paths.length) req.paths = [...new Set(paths)].slice(0, 20).map((p) => clean(p, 400));
   if (typeof i.url === "string") req.url = clean(i.url, 1000);
   return req;
+}
+
+/**
+ * Everything worth showing to the person who decides, taken from the tool's
+ * input and redacted here. Edits carry their before and after text, a whole
+ * file write carries its first part, a command carries all of itself.
+ */
+export function askDetail(tool: string, input: Record<string, unknown> | undefined, suggestions: unknown[] | undefined, rationale: string | null, forcedBy: string | null): AskDetail {
+  const i = input ?? {};
+  const str = (v: unknown, max: number): string | null => (typeof v === "string" && v.length ? clean(v, max) : null);
+  const edits: AskDetail["edits"] = [];
+  const path = str(i.file_path ?? i.path ?? i.notebook_path, 400);
+  if ((tool === "Edit" || tool === "NotebookEdit") && path && (typeof i.old_string === "string" || typeof i.new_string === "string" || typeof i.new_source === "string")) {
+    edits.push({ path, before: str(i.old_string, 6000) ?? "", after: str(i.new_string ?? i.new_source, 6000) ?? "", replaceAll: i.replace_all === true });
+  }
+  if (Array.isArray(i.edits)) {
+    for (const e of i.edits.slice(0, 20)) {
+      const x = e as { file_path?: unknown; old_string?: unknown; new_string?: unknown; replace_all?: unknown };
+      const ep = str(x.file_path, 400) ?? path;
+      if (ep) edits.push({ path: ep, before: str(x.old_string, 6000) ?? "", after: str(x.new_string, 6000) ?? "", replaceAll: x.replace_all === true });
+    }
+  }
+  let write: AskDetail["write"] = null;
+  if (tool === "Write" && path && typeof i.content === "string") {
+    const content = i.content;
+    write = { path, excerpt: clean(content, 6000), lines: content.split("\n").length, bytes: Buffer.byteLength(content, "utf8") };
+  }
+  const paths = [...new Set([path, ...edits.map((e) => e.path)].filter((p): p is string => !!p))].slice(0, 20);
+  const suggestedRules: SuggestedRule[] = [];
+  for (const u of (suggestions ?? []) as PermissionUpdate[]) {
+    if (u && u.type === "addRules" && u.behavior === "allow" && Array.isArray(u.rules)) {
+      for (const r of u.rules) if (r && typeof r.toolName === "string") suggestedRules.push({ tool: clean(r.toolName, 120), content: typeof r.ruleContent === "string" ? clean(r.ruleContent, 300) : null });
+    }
+  }
+  const questions: Question[] = [];
+  if (tool === "AskUserQuestion" && Array.isArray(i.questions)) {
+    for (const q of i.questions.slice(0, 4)) {
+      const x = q as { question?: unknown; header?: unknown; options?: unknown; multiSelect?: unknown };
+      if (typeof x.question !== "string") continue;
+      const options = Array.isArray(x.options) ? x.options.slice(0, 20).map((o) => { const y = o as { label?: unknown; description?: unknown }; return { label: str(y.label, 300) ?? "", description: str(y.description, 500) }; }).filter((o) => o.label) : [];
+      questions.push({ question: clean(x.question, 1000), header: str(x.header, 60), options, multiSelect: x.multiSelect === true });
+    }
+  }
+  return {
+    command: tool === "Bash" || tool === "PowerShell" ? str(i.command, 4000) : null,
+    description: str(i.description, 500),
+    edits,
+    write,
+    url: str(i.url, 1000),
+    paths,
+    rationale,
+    forcedBy,
+    suggestedRules: suggestedRules.slice(0, 5),
+    questions,
+  };
+}
+
+/** Turn an approver's "allow for this session" into the permission update Claude Code applies. */
+export function sessionRule(rule: unknown): PermissionUpdate | null {
+  const r = rule as { tool?: unknown; content?: unknown } | null;
+  if (!r || typeof r.tool !== "string" || !r.tool.trim()) return null;
+  const content = typeof r.content === "string" && r.content.trim() ? r.content.trim().slice(0, 300) : undefined;
+  return { type: "addRules", rules: [{ toolName: r.tool.trim().slice(0, 120), ...(content ? { ruleContent: content } : {}) }], behavior: "allow", destination: "session" };
 }
 
 /**
@@ -93,6 +165,54 @@ async function applyDeliveries(cfg: Config, s: SessionState, deliveries: Deliver
   for (const d of fresh) s.seenDeliveries.push(d.id);
   if (s.seenDeliveries.length > 200) s.seenDeliveries.splice(0, s.seenDeliveries.length - 200);
   return fresh;
+}
+
+/**
+ * Show a multiple-choice question in Tessera and wait a little for an answer
+ * from there. Answered in time, the tool runs with the answer filled in and the
+ * terminal never shows the dialog; otherwise the terminal asks as usual.
+ */
+async function askFromTessera(cfg: Config, s: SessionState, input: HookInput, agentId: string | null): Promise<unknown> {
+  const detail = askDetail("AskUserQuestion", input.tool_input, undefined, null, null);
+  if (!detail.questions.length) return undefined;
+  const askId = `${input.tool_use_id ?? "q"}-${Date.now().toString(36)}`;
+  const first = detail.questions[0]!;
+  s.status = "waiting";
+  s.waitReason = "question";
+  s.openAsk = {
+    id: askId,
+    kind: "question",
+    createdAt: new Date().toISOString(),
+    tool: "AskUserQuestion",
+    prompt: detail.questions.length === 1 ? first.question : detail.questions.map((q, i) => `${i + 1}. ${q.question}`).join("\n"),
+    options: detail.questions.length === 1 ? first.options.map((o) => o.label) : [],
+    detail,
+  };
+  addEvent(s, "wait", `waiting on you: ${clean(first.question, 200)}`, agentId);
+  saveState(s);
+  const ack = await sendReport(cfg, s, 4000);
+  const sid = s.id;
+  let answer = ack ? (await applyDeliveries(cfg, s, ack.deliveries)).find((d) => d.kind === "answer" && d.askId === askId) : undefined;
+  const deadline = Date.now() + cfg.questionWaitSeconds * 1000;
+  while (!answer && Date.now() < deadline) {
+    const waitS = Math.max(1, Math.min(20, Math.floor((deadline - Date.now()) / 1000)));
+    const r = await get<{ deliveries: Delivery[] }>(cfg, `/api/ingest/sessions/${encodeURIComponent(sid)}/deliveries?wait=${waitS}`, (waitS + 5) * 1000);
+    if (!r) break;
+    answer = (await applyDeliveries(cfg, s, r.deliveries)).find((d) => d.kind === "answer" && d.askId === askId);
+  }
+  // Either way the dialog is no longer Tessera's to show.
+  s.openAsk = null;
+  s.status = "running";
+  s.waitReason = null;
+  if (!answer) return undefined;
+  const p = answer.payload as { answers?: Record<string, string>; option?: string | null; text?: string | null; by?: string };
+  // One question answered with an option or free text; several answered by question text.
+  const answers: Record<string, string> = { ...(p.answers ?? {}) };
+  if (!Object.keys(answers).length && (p.option || p.text)) answers[first.question] = String(p.option || p.text);
+  if (!Object.keys(answers).length) return undefined;
+  addEvent(s, "answer", `answered by ${p.by ?? "Tessera"}: ${clean(Object.values(answers).join(", "), 200)}`, agentId);
+  await post(cfg, `/api/ingest/deliveries/${answer.id}/result`, { result: { applied: true } }, 1500);
+  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { ...(input.tool_input ?? {}), answers } } };
 }
 
 /**
@@ -136,6 +256,15 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
         const agentId = currentAgentId(s);
         const bucket = agentId ? s.agents[agentId]?.toolCalls : s.toolCalls;
         if (bucket) bucket[tool] = (bucket[tool] ?? 0) + 1;
+        const summary = toolSummary(tool, input.tool_input);
+        startAction(s, input.tool_use_id ?? `${s.seq}-${Date.now().toString(36)}`, tool, summary, agentId);
+        if (tool === "AskUserQuestion" && cfg) {
+          // The agent is asking the person a question. Show it in Tessera and, if someone there
+          // answers before the terminal does, hand the answer back so the dialog never appears.
+          const answered = await askFromTessera(cfg, s, input, agentId);
+          if (answered) output = answered;
+          break;
+        }
         if (tool === "Skill" && typeof input.tool_input?.skill === "string") {
           const a = agentId ? s.agents[agentId] : null;
           if (a) a.skills = [...new Set([...a.skills, String(input.tool_input.skill)])];
@@ -144,16 +273,19 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           const d = await post<DecideResponse>(cfg, "/api/ingest/decide", decideRequest(sid, tool, input.tool_input), 1500);
           if (d?.decision === "deny" && d.stop) {
             // Someone pressed Stop in Tessera: refuse this call and end the turn, back to the engineer.
+            endAction(s, input.tool_use_id, "denied", d.reason ?? "stopped from Tessera");
             addEvent(s, "note", `Stopped from Tessera: ${d.reason ?? ""}`, agentId);
             s.status = "waiting";
             s.waitReason = "idle";
             output = { continue: false, stopReason: d.reason ?? "Stopped from Tessera.", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason ?? "Stopped from Tessera." } };
           } else if (d?.decision === "deny") {
-            addEvent(s, "note", `Tessera denied ${toolSummary(tool, input.tool_input)}: ${d.reason ?? "policy"}`, agentId);
+            endAction(s, input.tool_use_id, "denied", d.reason ?? "denied by policy");
+            addEvent(s, "note", `Tessera denied ${summary}: ${d.reason ?? "policy"}`, agentId);
             output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason ?? "Denied by Tessera policy." } };
           } else if (d?.decision === "ask") {
             // Force the permission prompt, which Tessera then shows on the wall and in Slack.
-            addEvent(s, "note", `Tessera requires approval for ${toolSummary(tool, input.tool_input)}: ${d.reason ?? "policy"}`, agentId);
+            s.forced = { summary, reason: d.reason ?? "Tessera policy asks for approval.", at: Date.now() };
+            addEvent(s, "note", `Tessera requires approval for ${summary}: ${d.reason ?? "policy"}`, agentId);
             output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: d.reason ?? "Tessera policy asks for approval." } };
           }
         }
@@ -161,12 +293,14 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
       }
       case "PostToolUse": {
         s.status = "running";
+        endAction(s, input.tool_use_id, "ok", null, typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
         break;
       }
       case "PostToolUseFailure": {
         const agentId = currentAgentId(s);
         const summary = toolSummary(input.tool_name, input.tool_input);
         const err = clean(String(input.error ?? "failed"), 500);
+        endAction(s, input.tool_use_id, "failed", err.slice(0, 300), typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
         addEvent(s, "tool.fail", `${summary} failed: ${err.slice(0, 200)}`, agentId);
         const a = agentId ? s.agents[agentId] : null;
         if (a) a.failure = { class: "tool_error", at: new Date().toISOString(), tool: input.tool_name ?? null, summary: `${summary}: ${err.slice(0, 300)}`, exitCode: null, outputTail: err.split("\n").slice(-12) };
@@ -236,9 +370,16 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
         const isPlan = tool === "ExitPlanMode";
         const planText = isPlan ? String(input.tool_input?.plan ?? "") : "";
         const askId = `${input.tool_use_id ?? tool}-${Date.now().toString(36)}`;
+        const summary = toolSummary(tool, input.tool_input);
         s.status = "waiting";
         s.waitReason = isPlan ? "plan" : "permission";
-        s.openAsk = { id: askId, kind: isPlan ? "plan" : "permission", createdAt: new Date().toISOString(), tool, prompt: clean(isPlan ? planText || "Approve the plan?" : toolSummary(tool, input.tool_input), 4000), options: [] };
+        // What the agent said just before asking is the best account of why it wants this.
+        refreshTranscripts(s);
+        const rationale = cfg?.excerpts !== false && s.cursor.lastAssistantText ? clean(s.cursor.lastAssistantText, 1500) : null;
+        const forcedBy = s.forced && s.forced.summary === summary && Date.now() - s.forced.at < 60_000 ? s.forced.reason : null;
+        s.forced = null;
+        const detail = isPlan ? null : askDetail(tool, input.tool_input, input.permission_suggestions, rationale, forcedBy);
+        s.openAsk = { id: askId, kind: isPlan ? "plan" : "permission", createdAt: new Date().toISOString(), tool, prompt: clean(isPlan ? planText || "Approve the plan?" : summary, 4000), options: [], detail };
         addEvent(s, "wait", `waiting on you: ${isPlan ? "plan approval" : toolSummary(tool, input.tool_input)}`);
         saveState(s);
         if (cfg) {
@@ -252,9 +393,12 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
             answer = (await applyDeliveries(cfg, s, r.deliveries)).find((d) => d.kind === "answer" && d.askId === askId);
           }
           if (answer) {
-            const p = answer.payload as { decision?: string; text?: string | null; by?: string };
+            const p = answer.payload as { decision?: string; text?: string | null; by?: string; scope?: string; rule?: unknown };
             const allow = p.decision === "allow" || p.decision === "approve";
-            addEvent(s, "answer", `${allow ? "allowed" : "denied"} by ${p.by ?? "Tessera"}${p.text ? `: ${clean(p.text, 200)}` : ""}`);
+            // "Allow for this session" also adds a rule, so the runtime stops asking about this pattern.
+            const update = allow && p.scope === "session" ? sessionRule(p.rule) : null;
+            const ruleText = update?.rules?.[0] ? `${update.rules[0].toolName}${update.rules[0].ruleContent ? `(${update.rules[0].ruleContent})` : ""}` : null;
+            addEvent(s, "answer", `${allow ? "allowed" : "denied"} by ${p.by ?? "Tessera"}${ruleText ? ` and allowed ${ruleText} for this session` : ""}${p.text ? `: ${clean(p.text, 200)}` : ""}`);
             s.openAsk = null;
             s.status = "running";
             s.waitReason = null;
@@ -262,7 +406,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
               hookSpecificOutput: {
                 hookEventName: "PermissionRequest",
                 decision: allow
-                  ? { behavior: "allow", ...(isPlan ? { updatedInput: input.tool_input ?? {} } : {}) }
+                  ? { behavior: "allow", ...(isPlan ? { updatedInput: input.tool_input ?? {} } : {}), ...(update ? { updatedPermissions: [update] } : {}) }
                   : { behavior: "deny", message: p.text ? `Denied from Tessera by ${p.by ?? "a reviewer"}: ${p.text}` : `Denied from Tessera by ${p.by ?? "a reviewer"}.` },
               },
             };
