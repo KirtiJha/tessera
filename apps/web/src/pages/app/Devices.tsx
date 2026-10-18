@@ -102,6 +102,15 @@ export function Devices() {
         </ol>
       </Panel>
 
+      <Panel title="Other agent runtimes" className="mt-4">
+        <p className="text-[13px] text-mist">Any runtime that exports OpenTelemetry traces with the GenAI conventions (Codex CLI, Gemini CLI, agents built on an SDK) shows up on the wall with no Tessera code on the machine: agents, tokens per model, failed tool calls. Issue a token by hand below for the machine, then set:</p>
+        <pre className="mt-3 overflow-x-auto rounded-lg border border-line bg-ink p-3 font-mono text-[12px] leading-relaxed text-teal-300">{`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${window.location.origin}/api/ingest/otlp/v1/traces
+OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer tsr_…"
+OTEL_RESOURCE_ATTRIBUTES="session.id=$(uuidgen)"   # optional; else each trace is a session`}</pre>
+        <p className="mt-2 text-[12px] text-fog">Spans named by gen_ai.operation.name: invoke_agent becomes an agent, chat carries gen_ai.usage.* tokens, execute_tool counts tool calls. vcs.repository.url.full and vcs.ref.head.name fill the repository and branch. Approving from Tessera needs a first-party reporter; traces are watch-only.</p>
+      </Panel>
+
       <Panel title={isAdmin ? "All devices" : "Your devices"} className="mt-4" action={<Button size="sm" onClick={() => setOpen(true)}><Plus size={14} /> Issue a token by hand</Button>}>
         {!devices ? null : devices.length === 0 ? (
           <Empty title="No devices yet" body="Enrol a machine above. It shows up here the moment it exchanges its code." />

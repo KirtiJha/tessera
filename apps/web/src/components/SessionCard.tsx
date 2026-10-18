@@ -67,6 +67,9 @@ export function AgentStrip({ s }: { s: SessionView }) {
  * once (CSS, no JavaScript per frame) when the session first appears; a card
  * scrolled into view on a virtualized wall appears without animation.
  */
+/** Runtimes other than Claude Code get a label; Claude Code is the default and needs none. */
+const RUNTIME: Record<string, string> = { "codex-cli": "Codex", "gemini-cli": "Gemini", cursor: "Cursor", custom: "OTel" };
+
 export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: SessionView; now: number; isNew?: boolean }) {
   const kind = sessionKind(s);
   const k = KIND[kind];
@@ -92,6 +95,7 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: Ses
                 {s.ownerName ?? "Unassigned"}{s.assignee ? ` → ${s.assignee.name}` : ""}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}
               </div>
             </div>
+            {RUNTIME[s.reporter.kind] ? <span className="shrink-0 rounded-md bg-violet-400/15 px-1.5 py-0.5 text-[11px] text-violet-400">{RUNTIME[s.reporter.kind]}</span> : null}
             <span className="shrink-0 rounded-md border border-line-2 px-1.5 py-0.5 text-[11px] text-mist">{modelShort(s.model)}{s.effort ? ` · ${s.effort}` : ""}</span>
           </div>
 

@@ -120,13 +120,14 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
       `SELECT s.id, s.name, s.cwd, s.model, s.status, s.started_at, s.ended_at, s.end_reason, s.dropped_at, s.tokens, s.usage_by_model, s.git,
               s.blowouts, u.name AS owner_name, s.owner_id, s.hostname,
               (SELECT COUNT(*)::int FROM agents a WHERE a.org_id = s.org_id AND a.session_id = s.id) AS agent_count,
+              (SELECT COALESCE(jsonb_agg(jsonb_build_object('usageByModel', a.usage_by_model)), '[]'::jsonb) FROM agents a WHERE a.org_id = s.org_id AND a.session_id = s.id) AS agent_usage,
               (SELECT COUNT(*)::int FROM agents a WHERE a.org_id = s.org_id AND a.session_id = s.id AND a.status = 'failed') AS failed_agents
          FROM sessions s LEFT JOIN users u ON u.id = s.owner_id
         WHERE ${w} ORDER BY s.started_at DESC, s.id LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     const table = await priceTableFor(p.orgId);
-    const { priceFor } = await import("../fleet/pricing.js");
+    const { priceFor, totalUsage } = await import("../fleet/pricing.js");
     return {
       total: total.rows[0]?.n ?? 0,
       page: q.page,
@@ -141,7 +142,7 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
         endedAt: r.ended_at ?? r.dropped_at,
         endReason: r.end_reason ?? (r.dropped_at ? "dropped" : null),
         tokens: r.tokens,
-        costUsd: priceFor(r.usage_by_model, table).usd,
+        costUsd: priceFor(totalUsage(r.usage_by_model, r.agent_usage), table).usd,
         repo: r.git?.repo ?? null,
         branch: r.git?.branch ?? null,
         blowouts: r.blowouts,

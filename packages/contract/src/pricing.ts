@@ -76,3 +76,24 @@ export function addTokens(a: TokenCounts, b: TokenCounts): TokenCounts {
 export function totalTokens(t: TokenCounts): number {
   return t.input + t.output + t.cacheRead + t.cacheWrite;
 }
+
+/**
+ * A session's whole usage: its own calls plus every agent's. Reporters send
+ * agents' usage separately (subagents keep their own transcripts), so the
+ * session's cost is the sum, never one or the other.
+ */
+export function totalUsage(own: ModelUsage[], agents: { usageByModel: ModelUsage[] }[]): ModelUsage[] {
+  const m = new Map<string, ModelUsage>();
+  for (const list of [own, ...agents.map((a) => a.usageByModel)]) {
+    for (const u of list) {
+      const cur = m.get(u.model) ?? { model: u.model, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      cur.input += u.input;
+      cur.output += u.output;
+      cur.cacheRead += u.cacheRead;
+      cur.cacheWrite += u.cacheWrite;
+      m.set(u.model, cur);
+    }
+  }
+  return [...m.values()];
+}
+

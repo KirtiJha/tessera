@@ -1,4 +1,5 @@
 import { BUILTIN_PRICES, type ModelPrice, priceUsage, type ModelUsage } from "@tessera/contract";
+export { totalUsage } from "@tessera/contract";
 import { pool } from "../db/pool.js";
 
 const cache = new Map<string, { table: ModelPrice[]; until: number }>();

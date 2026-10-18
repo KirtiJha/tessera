@@ -61,3 +61,11 @@ describe("deriveSession", () => {
     expect(v.tags.paused).toBe("review");
   });
 });
+
+describe("session cost", async () => {
+  const { totalUsage } = await import("@tessera/contract");
+  it("counts every agent's usage with the session's own", () => {
+    const u = totalUsage([{ model: "m", input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }], [{ usageByModel: [{ model: "m", input: 10, output: 0, cacheRead: 1, cacheWrite: 0 }, { model: "h", input: 5, output: 5, cacheRead: 0, cacheWrite: 0 }] }]);
+    expect(u).toEqual([{ model: "m", input: 11, output: 2, cacheRead: 1, cacheWrite: 0 }, { model: "h", input: 5, output: 5, cacheRead: 0, cacheWrite: 0 }]);
+  });
+});
