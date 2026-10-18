@@ -84,6 +84,10 @@ Only the session's owner, an approver on their team, or an admin can act; every 
 
 See [`.env.example`](.env.example). `DATABASE_URL` and (in production) `SECRET_KEY` are required. `REDIS_URL` turns on fan-out across replicas. `PUBLIC_URL` and `ALLOWED_HOSTS` decide which `Host` headers the server accepts in production.
 
+## Performance
+
+Tested at 500 concurrent sessions, each reporting every second: 496 reports a second sustained, report-to-wall p95 under 700 ms, and the browser's main thread about 12% busy with the wall open. The method, the load generator (`tools/loadgen`) and the before/after numbers are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md). `GET /api/metrics` serves Prometheus metrics to loopback, or with `METRICS_TOKEN`.
+
 ## Development
 
 ```sh

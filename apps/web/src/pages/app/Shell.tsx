@@ -63,7 +63,7 @@ function TopBar() {
       </NavLink>
       <div className="ml-2 flex items-center gap-2 text-[12.5px] text-fog">
         <span className={`h-2 w-2 rounded-full ${connected ? "bg-teal-400 dot-live" : "bg-rose-400"}`} />
-        {connected ? `${kpis?.liveSessions ?? sessions.length} live` : "reconnecting"}
+        {connected ? `${sessions.filter((s) => s.status !== "ended").length} live` : "reconnecting"}
       </div>
       <div className="ml-auto flex items-center gap-3 text-[12.5px] text-fog">
         {waiting > 0 ? (

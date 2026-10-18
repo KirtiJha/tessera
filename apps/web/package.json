@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.21",
     "@tessera/contract": "workspace:*",
     "framer-motion": "^12.23.22",
     "lucide-react": "^0.546.0",
