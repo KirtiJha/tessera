@@ -21,6 +21,7 @@ import { policyRoutes } from "./routes/policy.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { apiKeyRoutes } from "./routes/apikeys.js";
 import { scimRoutes } from "./routes/scim.js";
+import { dataRoutes } from "./routes/data.js";
 import { openapi } from "./openapi.js";
 import { ssoAdminRoutes, ssoRoutes } from "./routes/sso.js";
 import { metrics, metricsRoutes } from "./metrics.js";
@@ -124,6 +125,7 @@ export async function buildApp(): Promise<App> {
   await server.register(analyticsRoutes, { prefix: "/api/analytics" });
   await server.register(apiKeyRoutes, { prefix: "/api/keys" });
   await server.register(scimRoutes, { prefix: "/scim/v2" });
+  await server.register(dataRoutes, { prefix: "/api/admin/data", fleet });
   server.get("/api/openapi.json", async () => openapi());
   await server.register(policyRoutes, { prefix: "/api/admin/policy" });
   await server.register(integrationRoutes, { prefix: "/api/integrations", fleet });

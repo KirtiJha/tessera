@@ -145,6 +145,17 @@ tessera policy apply policy.json --note "Block prod MCP tools"
 
 In CI, set `TESSERA_URL` and `TESSERA_API_KEY` instead of logging in. `policy apply` shows the diff and refuses to overwrite a version saved since you read it.
 
+## Data and compliance
+
+Under **Data and compliance**, owners decide what Tessera keeps:
+
+- **Metadata only** drops prompt text and agent excerpts before they are stored.
+- **Data-loss prevention** removes email addresses, payment card numbers (Luhn-checked), US Social Security numbers, IBANs (checksum-verified) and any words you list, such as customer or project names. Secrets are always removed, on the machine and again on the server.
+- **Retention** per organisation for samples, events and sessions. The audit log is never pruned, so its hash chain verifies from the first entry.
+- **Legal hold** stops all pruning and erasure until it is released.
+- **Audit export** as JSON lines or CSV, and **streaming** to Splunk (HEC), Datadog or any NDJSON endpoint within about 15 seconds, in order, retried from where a failure stopped.
+- **A person's data**: export everything Tessera keeps about someone, or erase it. Their sessions, devices and keys are deleted, and their name and email are replaced; the audit log keeps its entries.
+
 ## Roles
 
 | Role | Can |

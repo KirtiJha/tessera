@@ -1,4 +1,4 @@
-import { clean, totalTokens, type DecideRequest, type DecideResponse, type ActivityEvent, type EventView, type FleetSnapshot, type Report, type ReportAck, type SessionView } from "@tessera/contract";
+import { applyDlp, clean, totalTokens, type DecideRequest, type DecideResponse, type ActivityEvent, type EventView, type FleetSnapshot, type Report, type ReportAck, type SessionView } from "@tessera/contract";
 import type { FastifyBaseLogger } from "fastify";
 import type { DevicePrincipal } from "../auth/devices.js";
 import { config } from "../config.js";
@@ -7,9 +7,11 @@ import { hasDelayedChannels, notify, resolveNotifications, type Notification } f
 import { applicable, budgetStatuses, recordBreach } from "./budgets.js";
 import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
+import { DEFAULT_DATA, dataSettingsFor, type DataSettings } from "./datasettings.js";
 import { activePolicy, callFrom, evaluatePolicy, recordDecisions, summaryOf } from "./policy.js";
 import { priceFor, priceTableFor } from "./pricing.js";
 import { rollupDays, utcDay } from "./rollup.js";
+import { pumpAuditStreams } from "../compliance/stream.js";
 import * as store from "./store.js";
 import type { StreamHub } from "./stream.js";
 import type { SessionRecord } from "./types.js";
@@ -34,35 +36,54 @@ function compareMinor(v: string, min: string, max: string): "ok" | "outdated" | 
 }
 
 /** Scrub every free-text field of a report in place. */
-function sanitise(r: Report): void {
+/**
+ * Scrub every free-text field of a report in place: secrets always, then the
+ * organisation's data-loss classes. With excerpts off (metadata-only), prompt
+ * and answer text is dropped before it is stored.
+ */
+function sanitise(r: Report, data: DataSettings = DEFAULT_DATA): void {
+  const dlpOn = data.dlp.emails || data.dlp.cards || data.dlp.nationalIds || data.dlp.ibans || data.dlp.terms.length > 0;
+  const t = (text: string, max: number) => {
+    const c = clean(text, max);
+    return dlpOn ? applyDlp(c, data.dlp) : c;
+  };
   const s = r.session;
-  s.name = s.name && clean(s.name, 200);
-  s.cwd = s.cwd && clean(s.cwd, 400);
-  if (s.git) {
-    s.git.repo = s.git.repo && clean(s.git.repo, 200);
-    s.git.branch = s.git.branch && clean(s.git.branch, 200);
-    s.git.worktree = s.git.worktree && clean(s.git.worktree, 400);
+  if (!data.excerpts) {
+    // The reporter names a session after its first prompt line; that is prompt text too.
+    s.name = null;
+    for (const a of s.agents) {
+      a.promptExcerpt = null;
+      a.answerExcerpt = null;
+    }
+    for (const e of r.events) if (e.kind === "turn.start") e.text = "prompt submitted";
   }
-  for (const f of s.filesChanged) f.path = clean(f.path, 400);
+  s.name = s.name && t(s.name, 200);
+  s.cwd = s.cwd && t(s.cwd, 400);
+  if (s.git) {
+    s.git.repo = s.git.repo && t(s.git.repo, 200);
+    s.git.branch = s.git.branch && t(s.git.branch, 200);
+    s.git.worktree = s.git.worktree && t(s.git.worktree, 400);
+  }
+  for (const f of s.filesChanged) f.path = t(f.path, 400);
   if (s.plan) {
-    s.plan.title = s.plan.title && clean(s.plan.title, 300);
-    for (const st of s.plan.steps) st.title = clean(st.title, 300);
+    s.plan.title = s.plan.title && t(s.plan.title, 300);
+    for (const st of s.plan.steps) st.title = t(st.title, 300);
   }
   if (s.openAsk) {
-    s.openAsk.prompt = clean(s.openAsk.prompt, 4000);
-    s.openAsk.options = s.openAsk.options.map((o) => clean(o, 300));
+    s.openAsk.prompt = t(s.openAsk.prompt, 4000);
+    s.openAsk.options = s.openAsk.options.map((o) => t(o, 300));
   }
   for (const a of s.agents) {
-    a.description = a.description && clean(a.description, 400);
-    a.promptExcerpt = a.promptExcerpt && clean(a.promptExcerpt, 400);
-    a.answerExcerpt = a.answerExcerpt && clean(a.answerExcerpt, 400);
+    a.description = a.description && t(a.description, 400);
+    a.promptExcerpt = a.promptExcerpt && t(a.promptExcerpt, 400);
+    a.answerExcerpt = a.answerExcerpt && t(a.answerExcerpt, 400);
     if (a.failure) {
-      a.failure.summary = clean(a.failure.summary, 500);
-      a.failure.outputTail = a.failure.outputTail.map((l) => clean(l, 240));
+      a.failure.summary = t(a.failure.summary, 500);
+      a.failure.outputTail = a.failure.outputTail.map((l) => t(l, 240));
     }
   }
-  for (const e of r.events) e.text = clean(e.text, 500);
-  for (const k of Object.keys(s.tags)) s.tags[k] = clean(s.tags[k] ?? "", 200);
+  for (const e of r.events) e.text = t(e.text, 500);
+  for (const k of Object.keys(s.tags)) s.tags[k] = t(s.tags[k] ?? "", 200);
 }
 
 /** One key per thing a session waits on: the open prompt's id, else the wait reason. */
@@ -100,6 +121,8 @@ export class Fleet {
     this.timers.push(setInterval(() => void this.tick().catch((e) => this.log.error({ err: e }, "tick failed")), 2000));
     this.timers.push(setInterval(() => void this.flushStream().catch((e) => this.log.error({ err: e }, "stream flush failed")), STREAM_FLUSH_MS));
     this.timers.push(setInterval(() => void this.flushSamples().catch((e) => this.log.error({ err: e }, "sample flush failed")), SAMPLE_FLUSH_MS));
+    // Audit log to each organisation's SIEM.
+    this.timers.push(setInterval(() => void pumpAuditStreams(this.log).catch((e) => this.log.error({ err: e }, "audit stream pump failed")), 15_000));
     // Daily spend rollup: backfill what the samples still hold, then keep today and yesterday current.
     const day = 86_400_000;
     void rollupDays(utcDay(Date.now() - config.retainSamplesDays * day), utcDay(Date.now())).catch((e) => this.log.error({ err: e }, "rollup backfill failed"));
@@ -165,7 +188,7 @@ export class Fleet {
   // ---- ingest ----------------------------------------------------------
 
   async ingest(report: Report, device: DevicePrincipal, ip: string | undefined): Promise<ReportAck> {
-    sanitise(report);
+    sanitise(report, await dataSettingsFor(device.orgId));
     const now = new Date().toISOString();
     const s = report.session;
     const orgId = device.orgId;
@@ -465,6 +488,11 @@ export class Fleet {
     await store.setControl(orgId, sessionId, rec.control);
     this.markDirty(rec);
     return rec;
+  }
+
+  /** Take a person's sessions off the wall (their data was erased). */
+  forgetOwner(orgId: string, userId: string): void {
+    for (const rec of [...this.orgMap(orgId).values()]) if (rec.ownerId === userId) this.remove(orgId, rec.id);
   }
 
   async drop(orgId: string, sessionId: string): Promise<boolean> {

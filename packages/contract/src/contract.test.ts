@@ -63,3 +63,16 @@ describe("redact", () => {
     expect(redact("git sha 3f2a9c1e5b7d4e8a9c217d4e5f6a8b90c0ffee12 ok")).toContain("3f2a9c1e5b7d");
   });
 });
+
+describe("data-loss prevention", async () => {
+  const { applyDlp } = await import("./redact.js");
+  const all = { emails: true, cards: true, nationalIds: true, ibans: true, terms: ["Project Falcon", "ACME-Bank"] };
+  it("removes the classes the organisation turned on, and only real ones", () => {
+    expect(applyDlp("mail ann.lee@example.co.uk now", all)).toBe("mail [email] now");
+    expect(applyDlp("card 4111 1111 1111 1111 and order 4111 1111 1111 1112", all)).toBe("card [card] and order 4111 1111 1111 1112");
+    expect(applyDlp("ssn 123-45-6789, not 000-12-3456", all)).toBe("ssn [id-number], not 000-12-3456");
+    expect(applyDlp("pay GB82 WEST 1234 5698 7654 32 or GB00 WEST 1234 5698 7654 32", all)).toBe("pay [iban] or GB00 WEST 1234 5698 7654 32");
+    expect(applyDlp("deploy project falcon to acme-bank (a.b) prod", all)).toBe("deploy [term] to [term] (a.b) prod");
+    expect(applyDlp("ann@example.com 4111111111111111", { emails: false, cards: false, nationalIds: false, ibans: false, terms: [] })).toBe("ann@example.com 4111111111111111");
+  });
+});

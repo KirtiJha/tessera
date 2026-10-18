@@ -9,6 +9,7 @@ import { Account, Audit, Prices } from "./pages/app/Admin";
 import { Notifications } from "./pages/app/Notifications";
 import { Budgets } from "./pages/app/Budgets";
 import { Compare } from "./pages/app/Compare";
+import { DataPage } from "./pages/app/DataPage";
 import { Devices } from "./pages/app/Devices";
 import { History } from "./pages/app/History";
 import { People } from "./pages/app/People";
@@ -59,6 +60,7 @@ function App() {
             <Route path="prices" element={<Prices />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="audit" element={<Audit />} />
+            <Route path="data" element={<DataPage />} />
             <Route path="sso" element={<Sso />} />
           </Route>
         </Route>
