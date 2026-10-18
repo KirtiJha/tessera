@@ -11,6 +11,7 @@ import { Devices } from "./pages/app/Devices";
 import { History } from "./pages/app/History";
 import { People } from "./pages/app/People";
 import { SessionPage } from "./pages/app/Session";
+import { Sso } from "./pages/app/Sso";
 import { Shell } from "./pages/app/Shell";
 import { Spend } from "./pages/app/Spend";
 import { Wall } from "./pages/app/Wall";
@@ -50,6 +51,7 @@ function App() {
             <Route path="prices" element={<Prices />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="audit" element={<Audit />} />
+            <Route path="sso" element={<Sso />} />
           </Route>
         </Route>
       </Route>

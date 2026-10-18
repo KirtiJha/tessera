@@ -70,6 +70,20 @@ Tessera never connects to an engineer's machine. The reporter posts snapshots an
 
 Only the session's owner, an approver on their team, or an admin can act; every action is written to the audit log.
 
+## Single sign-on
+
+Owners connect an OpenID Connect provider under **Single sign-on**: Okta, Microsoft Entra ID, Google Workspace, or any OIDC provider. People type their work email on the sign-in page and are sent to the provider when their domain uses SSO. Options: create accounts on first sign-in with a default role, and require SSO (members lose password sign-in; owners keep theirs as a way back in).
+
+Tessera uses the authorization code flow with PKCE and validates ID tokens against the provider's published keys. A provider can only sign in members of its own organisation, and once someone has signed in through SSO, only that provider identity signs them in again. Public email domains cannot be claimed.
+
+To try it locally without an Okta or Entra account, run the development provider and use issuer `http://127.0.0.1:4800`, client ID `tessera-dev`, client secret `dev-secret`:
+
+```sh
+pnpm --filter @tessera/dev-idp start
+```
+
+It signs in whoever you type, so it is for development only.
+
 ## Roles
 
 | Role | Can |

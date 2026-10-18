@@ -14,6 +14,7 @@ import { authRoutes } from "./routes/auth.js";
 import { enrolRoutes } from "./routes/enrol.js";
 import { fleetRoutes } from "./routes/fleet.js";
 import { ingestRoutes } from "./routes/ingest.js";
+import { ssoAdminRoutes, ssoRoutes } from "./routes/sso.js";
 import { metrics, metricsRoutes } from "./metrics.js";
 
 export interface App {
@@ -85,6 +86,8 @@ export async function buildApp(): Promise<App> {
   const fleet = new Fleet(hub, server.log);
 
   await server.register(authRoutes, { prefix: "/api/auth" });
+  await server.register(ssoRoutes, { prefix: "/api/auth/sso" });
+  await server.register(ssoAdminRoutes, { prefix: "/api/admin/sso" });
   await server.register(enrolRoutes, { prefix: "/api/enrol" });
   await server.register(ingestRoutes, { prefix: "/api/ingest", fleet });
   await server.register(fleetRoutes, { prefix: "/api/fleet", fleet, hub });
