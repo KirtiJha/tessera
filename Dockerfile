@@ -30,6 +30,6 @@ COPY --from=build /src/packages/contract/package.json /app/server/node_modules/@
 USER tessera
 ENV PORT=4700 HOST=0.0.0.0 WEB_DIST=/app/web/dist REPORTER_TGZ=/app/downloads/tessera-reporter.tgz CLI_TGZ=/app/downloads/tessera-cli.tgz
 EXPOSE 4700
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:4700/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:${PORT}/api/health || exit 1
 WORKDIR /app/server
 CMD ["node", "dist/index.js"]

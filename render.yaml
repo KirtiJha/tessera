@@ -1,0 +1,34 @@
+# Render Blueprint: one free web service running the Tessera image, and a free
+# PostgreSQL. Deploy with the button in the README, or Render → New → Blueprint.
+# Free tier notes: the service sleeps after 15 idle minutes (about a minute to
+# wake), and Render deletes free databases after 30 days. Fine for trying it;
+# use paid plans for real use.
+services:
+  - type: web
+    name: tessera
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tessera-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: LOG_FORMAT
+        value: json
+      # PUBLIC_URL defaults to the service's onrender.com address. Set it if
+      # you add a custom domain.
+      - key: INGEST_POOL_SIZE
+        value: "5"
+
+databases:
+  - name: tessera-db
+    plan: free
+    databaseName: tessera
+    user: tessera

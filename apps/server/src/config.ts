@@ -18,7 +18,9 @@ if (!secret || secret === "change-me-to-a-long-random-string") {
 }
 if (secret.length < 32) throw new Error("SECRET_KEY must be at least 32 characters");
 
-const publicUrl = (process.env.PUBLIC_URL ?? `http://localhost:${int("PORT", 4700)}`).replace(/\/+$/, "");
+// On Render the service's own address is known without configuration.
+const platformUrl = process.env.RENDER_EXTERNAL_URL ?? (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : undefined);
+const publicUrl = (process.env.PUBLIC_URL || platformUrl || `http://localhost:${int("PORT", 4700)}`).replace(/\/+$/, "");
 
 export const config = {
   env,
