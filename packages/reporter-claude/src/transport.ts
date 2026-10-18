@@ -52,7 +52,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       plan: null,
       agents,
       openAsk: s.openAsk,
-      tags: {},
+      tags: s.tags ?? {},
       continuedFrom: s.continuedFrom,
     },
     events: s.outbox.slice(0, 500),

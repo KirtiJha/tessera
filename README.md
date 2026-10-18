@@ -88,6 +88,16 @@ pnpm --filter @tessera/dev-idp start
 
 It signs in whoever you type, so it is for development only.
 
+## Analytics and chargeback
+
+**Analytics** shows estimated spend per day with a forecast for the month, unusual days marked, and spend grouped the way finance asks for it: by team, cost centre (set per team), person, repository, ticket (found in branch names with a pattern you set, `PAY-142` in `feat/PAY-142-refunds` by default) or any tag. Engineers tag sessions when they start Claude Code:
+
+```sh
+TESSERA_TAGS="project=apollo,ticket=PAY-142" claude
+```
+
+It also shows the share of prompts answered in Tessera (and from Slack), the mean wait for an answer, agent failure rate and context blowouts. Admins download chargeback CSV per group or per session with every allocation column. Cost per session per UTC day is rolled up from the per-minute samples, so spend history outlives the samples' retention.
+
 ## Policies
 
 Under **Policies**, admins write rules checked before every tool call on every enrolled machine. The first rule that matches decides:

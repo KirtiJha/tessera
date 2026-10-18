@@ -9,6 +9,7 @@ import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
 import { activePolicy, callFrom, evaluatePolicy, recordDecisions, summaryOf } from "./policy.js";
 import { priceFor, priceTableFor } from "./pricing.js";
+import { rollupDays, utcDay } from "./rollup.js";
 import * as store from "./store.js";
 import type { StreamHub } from "./stream.js";
 import type { SessionRecord } from "./types.js";
@@ -99,6 +100,10 @@ export class Fleet {
     this.timers.push(setInterval(() => void this.tick().catch((e) => this.log.error({ err: e }, "tick failed")), 2000));
     this.timers.push(setInterval(() => void this.flushStream().catch((e) => this.log.error({ err: e }, "stream flush failed")), STREAM_FLUSH_MS));
     this.timers.push(setInterval(() => void this.flushSamples().catch((e) => this.log.error({ err: e }, "sample flush failed")), SAMPLE_FLUSH_MS));
+    // Daily spend rollup: backfill what the samples still hold, then keep today and yesterday current.
+    const day = 86_400_000;
+    void rollupDays(utcDay(Date.now() - config.retainSamplesDays * day), utcDay(Date.now())).catch((e) => this.log.error({ err: e }, "rollup backfill failed"));
+    this.timers.push(setInterval(() => void rollupDays(utcDay(Date.now() - day), utcDay(Date.now())).catch((e) => this.log.error({ err: e }, "rollup failed")), 5 * 60_000));
     this.timers.push(
       setInterval(
         () => void store.prune(config.retainSamplesDays, config.retainEventsDays, config.retainSessionsDays).catch((e) => this.log.error({ err: e }, "prune failed")),

@@ -57,6 +57,22 @@ export function decideRequest(sessionId: string, tool: string, input: Record<str
   return req;
 }
 
+/**
+ * Cost-allocation tags from the environment Claude Code was started in:
+ * TESSERA_TAGS="project=apollo,ticket=PAY-142,costcenter=CC-120".
+ */
+export function tagsFromEnv(raw: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (raw ?? "").split(",")) {
+    const i = part.indexOf("=");
+    if (i <= 0) continue;
+    const k = part.slice(0, i).trim().toLowerCase().replace(/[^a-z0-9_.-]/g, "").slice(0, 60);
+    const v = clean(part.slice(i + 1).trim(), 200);
+    if (k && v && k !== "paused" && Object.keys(out).length < 20) out[k] = v;
+  }
+  return out;
+}
+
 function refreshTranscripts(s: SessionState): void {
   s.cursor = advance(s.transcriptPath, s.cursor);
   for (const a of Object.values(s.agents)) if (a.transcriptPath && a.status === "running") a.cursor = advance(a.transcriptPath, a.cursor);
@@ -100,6 +116,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
         }
         s.status = "waiting";
         s.waitReason = "idle";
+        s.tags = { ...s.tags, ...tagsFromEnv(process.env.TESSERA_TAGS) };
         refreshGit(s, true);
         addEvent(s, "session.start", `session started${input.source ? ` (${input.source})` : ""}`);
         break;
