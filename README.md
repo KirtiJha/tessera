@@ -121,6 +121,26 @@ Under **Notifications**, an admin adds channels for the events that matter: a se
 
 Any channel can wait before it hears about a waiting session (2, 5 or 15 minutes, an hour), which makes escalation channels a one-line setup. For the Slack app, the page gives you a manifest to paste into api.slack.com; set the interactivity URL to `https://<your Tessera>/api/integrations/slack/actions`.
 
+## API and command line
+
+Make an API key under **API keys**. A key acts as the person who made it, with their current role, limited to the scopes picked (`fleet:read`, `sessions:act`, `analytics:read`, `audit:read`, `policy:read`, `policy:write`), and can expire. The public API is the console's own API under `/api/v1`, described at `/api/v1/openapi.json` (OpenAPI 3.1).
+
+The `tessera` CLI is served by your server, like the reporter:
+
+```sh
+npx -y --package=$TESSERA/downloads/tessera-cli.tgz tessera login --server $TESSERA
+tessera sessions --waiting          # what is waiting on someone
+tessera watch                       # a line (and a bell) when a session starts waiting
+tessera allow 3f9c                  # answer by id prefix or name; deny, approve, reject, answer, message
+tessera pause 3f9c --reason "freeze" ; tessera stop 3f9c
+tessera spend --days 30 --by cost_center
+tessera export --by cost_center --from 2026-10-01 --to 2026-10-31 -o october.csv
+tessera policy get -o policy.json   # edit, review in Git, then:
+tessera policy apply policy.json --note "Block prod MCP tools"
+```
+
+In CI, set `TESSERA_URL` and `TESSERA_API_KEY` instead of logging in. `policy apply` shows the diff and refuses to overwrite a version saved since you read it.
+
 ## Roles
 
 | Role | Can |

@@ -1,4 +1,4 @@
-import { Activity, BarChart3, BellRing, KeyRound, ShieldCheck, Clock, Laptop, LogOut, PiggyBank, ScrollText, Settings, Tag, Users, Wallet } from "lucide-react";
+import { Activity, BarChart3, KeySquare, BellRing, KeyRound, ShieldCheck, Clock, Laptop, LogOut, PiggyBank, ScrollText, Settings, Tag, Users, Wallet } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Mark, Wordmark } from "../../components/Logo";
 import { useAuth } from "../../lib/auth";
@@ -26,6 +26,7 @@ function Nav() {
       <nav className="mt-1 space-y-0.5">
         {link("/app/devices", <Laptop size={16} />, "Devices")}
         {link("/app/settings", <Settings size={16} />, "Account")}
+        {link("/app/keys", <KeySquare size={16} />, "API keys")}
       </nav>
       {isAdmin ? (
         <>

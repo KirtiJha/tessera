@@ -1,0 +1,22 @@
+{
+  "name": "@tessera/cli",
+  "version": "0.1.0",
+  "description": "tessera: the Tessera command line. Watch the fleet, answer sessions, read spend, apply policy as code.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tessera": "./bin/tessera.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/pack.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "echo ok"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

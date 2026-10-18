@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { audit, verifyChain } from "../audit.js";
 import { encrypt, newToken, sha256 } from "../auth/crypto.js";
+import { forgetApiKeys } from "../auth/apikeys.js";
 import { forgetDevice, issueDevice } from "../auth/devices.js";
 import { atLeast, canManageOrg, type Role } from "../auth/rbac.js";
 import { checkMutation, requireUser } from "../auth/session.js";
@@ -88,6 +89,8 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     }
     if (sets.length) await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $1 AND org_id = $2`, params);
     if (body.status === "disabled") await pool.query("DELETE FROM user_sessions WHERE user_id = $1", [id]);
+    // Keys act with their maker's current role; drop cached ones so a change applies now.
+    forgetApiKeys();
     await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "user.update", targetType: "user", targetId: id, detail: body, ip: req.ip });
     return { ok: true };
   });

@@ -1,3 +1,4 @@
+import type {} from "./apikeys.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../config.js";
 import { pool } from "../db/pool.js";
@@ -76,6 +77,8 @@ export async function requireUser(req: FastifyRequest, reply: FastifyReply): Pro
 /** Mutating browser requests must carry the custom header (CSRF) and a same-origin Origin when present. */
 export function checkMutation(req: FastifyRequest): void {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return;
+  // A bearer API key is not sent by browsers on their own, so it carries no CSRF risk.
+  if (req.apiKey) return;
   if (req.headers["x-tessera-client"] !== "web") {
     throw Object.assign(new Error("missing X-Tessera-Client header"), { statusCode: 403 });
   }
