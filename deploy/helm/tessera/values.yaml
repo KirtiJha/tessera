@@ -1,0 +1,90 @@
+# Tessera Helm values. PostgreSQL is required and is not bundled: use your
+# managed database (RDS, Cloud SQL, Azure Database) or an operator.
+
+image:
+  repository: ghcr.io/kirtijha/tessera
+  tag: ""            # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# More than one replica needs Redis (redis.url), which shares the live fleet
+# and the browser stream between replicas.
+replicaCount: 1
+
+# The address people and reporters use. Required.
+publicUrl: https://tessera.example.com
+# Extra host names the server accepts (comma-separated), besides publicUrl's.
+allowedHosts: ""
+
+# Secrets. Either name an existing Secret with these keys, or set the values
+# here and the chart creates one:
+#   DATABASE_URL, SECRET_KEY, and optionally REDIS_URL, METRICS_TOKEN,
+#   BOOTSTRAP_ADMIN_PASSWORD.
+existingSecret: ""
+secret:
+  databaseUrl: ""    # postgres://user:pass@host:5432/tessera?sslmode=require
+  secretKey: ""      # openssl rand -hex 32
+  metricsToken: ""
+redis:
+  url: ""            # redis://… (put it in existingSecret as REDIS_URL instead if it has a password)
+
+# First organisation, created on first start when none exists.
+bootstrap:
+  orgName: ""
+  adminEmail: ""
+  adminPassword: ""
+
+retention:
+  samplesDays: 30
+  eventsDays: 180
+  sessionsDays: 365
+
+ingestPoolSize: 20
+logLevel: info
+extraEnv: []         # [{ name: …, value: … }]
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    # The browser stream and the reporters' 55 s permission long-poll need
+    # long-lived, unbuffered responses. For ingress-nginx:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  host: tessera.example.com
+  tls: []            # [{ secretName: tessera-tls, hosts: [tessera.example.com] }]
+
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { memory: 1Gi }
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+metrics:
+  # Adds prometheus.io annotations; scrape with METRICS_TOKEN as a bearer token.
+  annotations: false
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

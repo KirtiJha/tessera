@@ -105,7 +105,7 @@ export function Landing() {
             <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Answer it where you are.</h2>
             <p className="mt-4 text-[17px] leading-relaxed text-ash">A session that waits is a session that costs. Tessera brings the prompt to you: allow or deny a tool, approve a plan, send a message, pause a runaway. From the console, or from the Slack message that told you.</p>
             <ul className="mt-6 space-y-3 text-[15px] text-ink">
-              {["Permission prompts answered from the console land in the session within a second.", "Only the session's owner, their team's approvers or an admin can act, and every action is logged.", "Tessera never opens a connection to an engineer's machine. The reporter pulls, always."].map((t) => (
+              {["Allow, Deny and Approve buttons on the Slack message itself, answered as the person who pressed.", "Stop a runaway turn, pause a session, or hand it to a colleague before you step away.", "Only the session's owner, their team's approvers or an admin can act, and every action is logged.", "Tessera never opens a connection to an engineer's machine. The reporter pulls, always."].map((t) => (
                 <li key={t} className="flex gap-3">
                   <span className="mt-[7px] h-2 w-2 shrink-0 rounded-[3px] bg-teal-600" />
                   <span>{t}</span>
@@ -134,15 +134,18 @@ export function Landing() {
       <section id="govern" className="mx-auto max-w-6xl px-6 py-20">
         <div className="grid gap-12 lg:grid-cols-[1fr_1fr]">
           <div>
-            <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Budgets that stop the bleeding, not just report it.</h2>
-            <p className="mt-4 text-[17px] leading-relaxed text-ash">Set a soft limit and a hard limit per organisation, team or person, by day, week or month. Soft limits notify. Hard limits, when you turn enforcement on, deny every new tool call in the sessions they cover until the window resets, with a reason the engineer can read in their terminal.</p>
+            <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Guardrails that act, not just report.</h2>
+            <p className="mt-4 text-[17px] leading-relaxed text-ash">Write rules that every tool call on every machine is checked against: deny reading secrets files, ask a reviewer before a Terraform apply, allow the exceptions. Try a rule as a dry run first and see who it would have stopped. Budgets do the same for spend: soft limits notify, hard limits deny new tool calls until the window resets.</p>
+            <p className="mt-4 text-[17px] leading-relaxed text-ash">Then see where the money went, by team, cost centre, ticket or tag, with a forecast for the month and a chargeback file for finance.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {[
-              ["Single sign-on ready", "Email and password today; OIDC and SAML in the next release. Roles: owner, admin, approver, operator, viewer."],
-              ["Device enrolment", "Each machine gets its own revocable token, bound to a person. Nothing is shared, nothing is typed into a settings file twice."],
-              ["Redaction at the source", "Keys, tokens, passwords and high-entropy strings are replaced before anything leaves the session."],
-              ["Hash-chained audit", "Every sign-in, answer, budget change and invitation is written to an append-only log you can verify in one click."],
+              ["Single sign-on and SCIM", "Okta, Entra ID or Google through OpenID Connect, with verified domains. Your provider creates people and switches them off when they leave."],
+              ["Any agent runtime", "Claude Code through its hooks; Codex, Gemini and SDK agents through OpenTelemetry traces. One wall."],
+              ["Data you decide to keep", "Metadata-only mode, PII removal, retention per organisation, legal hold, export and erasure for a person's data."],
+              ["Hash-chained audit, streamed", "Every action in an append-only log you can verify in one click and stream to Splunk or Datadog."],
+              ["API keys and a CLI", "Scoped keys that act as their maker. Watch, answer and apply policy as code from a terminal or CI."],
+              ["Runs where you run", "One container and Postgres. A Helm chart with Redis for several replicas."],
             ].map(([t, b]) => (
               <div key={t} className="rounded-xl border border-ink/10 bg-paper-2 p-5">
                 <h3 className="text-[15.5px] font-semibold text-ink">{t}</h3>

@@ -20,7 +20,7 @@ RUN pnpm --filter @tessera/contract build \
 FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /app
-RUN addgroup -S tessera && adduser -S tessera -G tessera
+RUN addgroup -S -g 10001 tessera && adduser -S -u 10001 -G tessera tessera
 COPY --from=build /out/server /app/server
 COPY --from=build /src/apps/web/dist /app/web/dist
 COPY --from=build /src/packages/reporter-claude/release/tessera-reporter.tgz /app/downloads/tessera-reporter.tgz

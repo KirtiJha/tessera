@@ -11,6 +11,9 @@ Self-hosted on PostgreSQL. Nothing leaves a session except what you turn on. Apa
 | `apps/server` | Fastify API: sign-in, organisations and roles, device enrolment, telemetry ingest, live fleet state with a Server-Sent-Events stream, history, budgets with enforcement, model pricing, Slack and webhook notifications, hash-chained audit log. PostgreSQL for everything; Redis optional for several replicas. |
 | `apps/web` | The console: landing page, live wall, session pages with a respond panel, history, spend, devices, people and teams, budgets, prices, notifications, audit. React 19, Tailwind 4, Framer Motion. |
 | `packages/contract` | The typed telemetry schema (`zod`), price table, redaction and the view types shared by server, web and reporters. |
+| `packages/cli` | The `tessera` command line, over the public API. Served by the server at `/downloads/tessera-cli.tgz`. |
+| `deploy/helm/tessera` | Helm chart for Kubernetes. |
+| `e2e` | Browser end-to-end tests (Playwright) against a running server. |
 | `packages/reporter-claude` | The Claude Code reporter, driven by Claude Code's hooks. Reads token usage from the session transcript, answers permission prompts from the console, delivers messages, enforces budgets. |
 
 ## Run it
@@ -24,6 +27,18 @@ open http://localhost:4700      # create your organisation on the landing page
 ```
 
 Set `BOOTSTRAP_ORG_NAME`, `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` to create the first organisation at start instead of through the sign-up page.
+
+### On Kubernetes
+
+```sh
+helm install tessera deploy/helm/tessera \
+  --set publicUrl=https://tessera.example.com \
+  --set secret.databaseUrl='postgres://…/tessera?sslmode=require' \
+  --set secret.secretKey=$(openssl rand -hex 32) \
+  --set ingress.enabled=true --set ingress.host=tessera.example.com
+```
+
+PostgreSQL is not bundled; use your managed database. For more than one replica (or autoscaling) set `redis.url`: replicas share the live fleet and the browser stream through Redis, so a report to one replica and an answer on another meet. The chart runs the container read-only as a non-root user, sets ingress annotations for the long-lived stream, and refuses to render a multi-replica install without Redis. Prefer `existingSecret` (keys `DATABASE_URL`, `SECRET_KEY`, optionally `REDIS_URL`, `METRICS_TOKEN`) over values on the command line.
 
 ### From source
 
@@ -190,11 +205,12 @@ Tested at 500 concurrent sessions, each reporting every second: 496 reports a se
 
 ```sh
 pnpm typecheck
-pnpm test          # contract, server and reporter unit tests
+pnpm test          # unit tests, plus integration tests when DATABASE_URL (and Redis) are reachable
 pnpm build
+pnpm --filter @tessera/e2e e2e   # browser tests against a running server (E2E_BASE_URL)
 ```
 
-The CI workflow runs the same, plus the migrations against a real PostgreSQL and a container build.
+CI runs all of it against real PostgreSQL and Redis, installs the reporter and the CLI with `npx` from the running server, runs the browser tests, builds the container and runs it read-only as the chart does, and lints and validates the Helm chart.
 
 ## Design notes
 

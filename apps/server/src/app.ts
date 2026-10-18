@@ -78,7 +78,8 @@ export async function buildApp(): Promise<App> {
     const name = host.replace(/:\d+$/, "");
     const ok =
       name === "localhost" || name === "127.0.0.1" || name === "[::1]" || host === config.publicHost.toLowerCase() || name === config.publicHost.toLowerCase().replace(/:\d+$/, "") || config.allowedHosts.some((h) => h.toLowerCase() === name || h.toLowerCase() === host);
-    if (!ok && config.isProd) {
+    // Health checks come from load balancers and the kubelet by address, not by name; they carry no data.
+    if (!ok && config.isProd && req.url !== "/api/health") {
       reply.code(403).send({ error: "host not allowed" });
       return reply;
     }
