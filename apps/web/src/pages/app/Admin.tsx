@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Button, Empty, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
+import { Button, Field, Input, Modal, Panel, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
 
@@ -59,72 +59,6 @@ export function Prices() {
             <div className="flex justify-end gap-2"><Button onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" disabled={!edit.prefix.trim() || !edit.label.trim()} onClick={() => void save()}>Save</Button></div>
           </div>
         ) : null}
-      </Modal>
-    </div>
-  );
-}
-
-// ---- Notifications ----------------------------------------------------------------
-interface Channel { id: string; kind: string; name: string; events: string[]; enabled: boolean; lastSentAt: string | null; lastError: string | null }
-const EVENTS: [string, string][] = [["session.waiting", "A session waits on someone"], ["agent.failed", "An agent fails"], ["context.blowout", "A context window overflows"], ["budget.breach", "A budget limit is reached"], ["session.stale", "A session goes silent"]];
-
-export function Notifications() {
-  const toast = useToast();
-  const [channels, setChannels] = useState<Channel[] | null>(null);
-  const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ kind: "slack_webhook", name: "", url: "", events: EVENTS.slice(0, 4).map((e) => e[0]) });
-  const load = useCallback(() => api.get<{ channels: Channel[] }>("/api/admin/channels").then((r) => setChannels(r.channels)), []);
-  useEffect(() => void load(), [load]);
-  const add = async (e: FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.post("/api/admin/channels", f);
-      setOpen(false);
-      setF({ ...f, name: "", url: "" });
-      toast("Channel added.");
-      await load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not add the channel.", "error");
-    }
-  };
-  const test = async (c: Channel) => {
-    const r = await api.post<{ error: string | null }>(`/api/admin/channels/${c.id}/test`);
-    toast(r.error ? `The channel answered with an error: ${r.error}` : "Test sent.", r.error ? "error" : "ok");
-    await load();
-  };
-  return (
-    <div className="mx-auto max-w-4xl p-5">
-      <h1 className="font-display text-[26px] font-semibold tracking-tight">Notifications</h1>
-      <p className="mt-1 text-[14px] text-fog">Push what matters to Slack or any webhook. Each event is sent once per channel; the URL is stored encrypted.</p>
-      <Panel title="Channels" className="mt-5" action={<Button size="sm" variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> Add a channel</Button>}>
-        {!channels ? null : channels.length === 0 ? <Empty title="No channels" body="Add a Slack incoming webhook or a plain https webhook to get told when a session waits, an agent fails or a budget is hit." /> : (
-          <ul className="divide-y divide-line">
-            {channels.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center gap-3 py-3 text-[13px]">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-snow">{c.name} <span className="text-fog">· {c.kind === "slack_webhook" ? "Slack" : "Webhook"}</span></div>
-                  <div className="text-[12px] text-fog">{c.events.map((e) => EVENTS.find((x) => x[0] === e)?.[1] ?? e).join(" · ")}</div>
-                  <div className="text-[12px] text-fog">{c.lastError ? <span className="text-rose-400">last error: {c.lastError}</span> : c.lastSentAt ? `last sent ${fmtDate(c.lastSentAt)}` : "nothing sent yet"}</div>
-                </div>
-                <label className="flex items-center gap-1.5 text-mist"><input type="checkbox" checked={c.enabled} onChange={(e) => void api.patch(`/api/admin/channels/${c.id}`, { enabled: e.target.checked }).then(load)} /> enabled</label>
-                <Button size="sm" onClick={() => void test(c)}>Send a test</Button>
-                <button onClick={() => { if (confirm("Delete this channel?")) void api.del(`/api/admin/channels/${c.id}`).then(load); }} className="text-fog hover:text-rose-400">Delete</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-      <Modal open={open} onClose={() => setOpen(false)} title="Add a channel">
-        <form onSubmit={add} className="space-y-4">
-          <Field label="Type"><Select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}><option value="slack_webhook">Slack incoming webhook</option><option value="webhook">Plain webhook (JSON POST)</option></Select></Field>
-          <Field label="Name"><Input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="#agents-alerts" /></Field>
-          <Field label="URL" hint="https only. Stored encrypted."><Input required type="url" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://hooks.slack.com/services/…" /></Field>
-          <div>
-            <div className="mb-1.5 text-[13px] font-medium text-mist">Send when</div>
-            <div className="space-y-1.5">{EVENTS.map(([k, label]) => <label key={k} className="flex items-center gap-2 text-[13.5px]"><input type="checkbox" checked={f.events.includes(k)} onChange={(e) => setF({ ...f, events: e.target.checked ? [...f.events, k] : f.events.filter((x) => x !== k) })} /> {label}</label>)}</div>
-          </div>
-          <div className="flex justify-end gap-2"><Button type="button" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" variant="primary">Add channel</Button></div>
-        </form>
       </Modal>
     </div>
   );

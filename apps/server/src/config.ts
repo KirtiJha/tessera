@@ -51,6 +51,9 @@ export const config = {
   reporterSupport: { min: "0.1", max: "0.1" },
   webDist: process.env.WEB_DIST ?? "",
   reporterTgz: process.env.REPORTER_TGZ ?? "",
+  /** Overridable for tests and for proxies that front these APIs. */
+  slackApiUrl: (process.env.SLACK_API_URL ?? "https://slack.com/api").replace(/\/+$/, ""),
+  pagerdutyEventsUrl: process.env.PAGERDUTY_EVENTS_URL ?? "https://events.pagerduty.com/v2/enqueue",
 } as const;
 
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");

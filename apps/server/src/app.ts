@@ -14,6 +14,7 @@ import { authRoutes } from "./routes/auth.js";
 import { enrolRoutes } from "./routes/enrol.js";
 import { fleetRoutes } from "./routes/fleet.js";
 import { ingestRoutes } from "./routes/ingest.js";
+import { integrationRoutes } from "./routes/integrations.js";
 import { ssoAdminRoutes, ssoRoutes } from "./routes/sso.js";
 import { metrics, metricsRoutes } from "./metrics.js";
 
@@ -92,6 +93,7 @@ export async function buildApp(): Promise<App> {
   await server.register(ingestRoutes, { prefix: "/api/ingest", fleet });
   await server.register(fleetRoutes, { prefix: "/api/fleet", fleet, hub });
   await server.register(adminRoutes, { prefix: "/api/admin" });
+  await server.register(integrationRoutes, { prefix: "/api/integrations", fleet });
 
   await server.register(metricsRoutes);
   metrics.liveSessions = () => fleet.totalLive();
