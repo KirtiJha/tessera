@@ -153,9 +153,11 @@ describe.skipIf(!reachable)("single sign-on (OIDC)", () => {
 
   it("refuses public email domains and domains another organisation owns", async () => {
     expect((await configure({ domains: ["gmail.com"] })).statusCode).toBe(400);
-    await pool.query("INSERT INTO sso_domains (domain, org_id) VALUES ($1, $2)", [`taken-${suffix}.test`, otherOrg]);
+    await pool.query("INSERT INTO sso_domains (domain, org_id, verification_token, verified_at) VALUES ($1, $2, 'x', now())", [`taken-${suffix}.test`, otherOrg]);
     const r = await configure({ domains: ["acme-sso.test", `taken-${suffix}.test`] });
     expect(r.statusCode).toBe(409);
+    // An unverified claim elsewhere blocks nobody: squatting a domain gains nothing.
+    await pool.query("INSERT INTO sso_domains (domain, org_id, verification_token) VALUES ('acme-sso.test', $1, 'squat')", [otherOrg]);
   });
 
   it("saves the configuration after checking the provider's discovery document", async () => {
@@ -164,7 +166,30 @@ describe.skipIf(!reachable)("single sign-on (OIDC)", () => {
     const g = await app.inject({ method: "GET", url: "/api/admin/sso", headers: { cookie: ownerCookie } });
     expect(g.json().config.hasSecret).toBe(true);
     expect(JSON.stringify(g.json())).not.toContain(idp.clientSecret);
+    expect(g.json().domains).toEqual([expect.objectContaining({ domain: "acme-sso.test", verified: false, record: expect.objectContaining({ name: "_tessera-verify.acme-sso.test", type: "TXT" }) })]);
+  });
+
+  it("routes sign-ins for a domain only once its DNS record proves the organisation controls it", async () => {
+    expect((await app.inject({ method: "GET", url: "/api/auth/sso/discover?email=anyone@acme-sso.test" })).json().sso).toBe(false);
+    const { txt } = await import("../auth/dnstxt.js");
+    const records: Record<string, string[][]> = {};
+    txt.resolve = async (name: string) => {
+      if (records[name]) return records[name]!;
+      throw Object.assign(new Error("not found"), { code: "ENOTFOUND" });
+    };
+    const verify = () => app.inject({ method: "POST", url: "/api/admin/sso/domains/acme-sso.test/verify", headers: { "x-tessera-client": "web", cookie: ownerCookie } });
+    expect((await verify()).json().error).toContain("No TXT record");
+    records["_tessera-verify.acme-sso.test"] = [["tessera-verification=squat"]];
+    expect((await verify()).json().error).toContain("not this organisation's");
+    const g = await app.inject({ method: "GET", url: "/api/admin/sso", headers: { cookie: ownerCookie } });
+    const value = g.json().domains[0].record.value as string;
+    // Long TXT values arrive split into chunks; they are joined before comparing.
+    records["_tessera-verify.acme-sso.test"] = [["v=spf1 -all"], [value.slice(0, 10), value.slice(10)]];
+    expect((await verify()).json()).toEqual({ ok: true, verified: true });
     expect((await app.inject({ method: "GET", url: "/api/auth/sso/discover?email=anyone@acme-sso.test" })).json()).toMatchObject({ sso: true, orgName: "Acme SSO" });
+    // Saving again keeps the verification.
+    expect((await configure({ clientSecret: undefined })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/admin/sso", headers: { cookie: ownerCookie } })).json().domains[0].verified).toBe(true);
   });
 
   it("signs a new person in through the provider and creates them with the default role", async () => {

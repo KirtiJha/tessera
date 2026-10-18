@@ -20,6 +20,7 @@ import { integrationRoutes } from "./routes/integrations.js";
 import { policyRoutes } from "./routes/policy.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { apiKeyRoutes } from "./routes/apikeys.js";
+import { scimRoutes } from "./routes/scim.js";
 import { openapi } from "./openapi.js";
 import { ssoAdminRoutes, ssoRoutes } from "./routes/sso.js";
 import { metrics, metricsRoutes } from "./metrics.js";
@@ -122,6 +123,7 @@ export async function buildApp(): Promise<App> {
   await server.register(adminRoutes, { prefix: "/api/admin" });
   await server.register(analyticsRoutes, { prefix: "/api/analytics" });
   await server.register(apiKeyRoutes, { prefix: "/api/keys" });
+  await server.register(scimRoutes, { prefix: "/scim/v2" });
   server.get("/api/openapi.json", async () => openapi());
   await server.register(policyRoutes, { prefix: "/api/admin/policy" });
   await server.register(integrationRoutes, { prefix: "/api/integrations", fleet });
@@ -155,7 +157,7 @@ export async function buildApp(): Promise<App> {
       if (/\/assets\//.test(path)) res.setHeader("cache-control", "public, max-age=31536000, immutable");
     } });
     server.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith("/api/")) return reply.code(404).send({ error: "not found" });
+      if (req.url.startsWith("/api/") || req.url.startsWith("/scim/")) return reply.code(404).send({ error: "not found" });
       return reply.sendFile("index.html");
     });
     server.log.info({ dist }, "serving web app");

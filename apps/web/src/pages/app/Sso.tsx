@@ -1,13 +1,26 @@
-import { Copy, ShieldCheck } from "lucide-react";
+import { BadgeCheck, CircleDashed, Copy, RefreshCw, ShieldCheck, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { Button, Field, Input, Panel, Select, Spinner, useToast } from "../../components/ui";
+import { Button, Field, Input, Modal, Panel, Select, Spinner, useToast } from "../../components/ui";
+import { ago } from "../../lib/format";
 import { api, ApiError } from "../../lib/api";
 
 interface Settings {
   redirectUri: string;
   canEdit: boolean;
   config: { enabled: boolean; issuer: string; clientId: string; hasSecret: boolean; jitProvisioning: boolean; defaultRole: string; enforce: boolean } | null;
-  domains: string[];
+  domains: { domain: string; verified: boolean; verifiedAt: string | null; record: { name: string; type: string; value: string } | null }[];
+  scim: { baseUrl: string; token: { prefix: string; createdAt: string; lastUsedAt: string | null } | null };
+}
+
+function CopyLine({ label, value }: { label: string; value: string }) {
+  const toast = useToast();
+  return (
+    <div className="grid grid-cols-[70px_1fr_auto] items-center gap-2 text-[12.5px]">
+      <span className="text-fog">{label}</span>
+      <code className="overflow-x-auto whitespace-nowrap rounded-md border border-line bg-ink px-2 py-1.5 font-mono text-teal-300">{value}</code>
+      <button onClick={() => void navigator.clipboard.writeText(value).then(() => toast("Copied."))} className="rounded-md p-1.5 text-fog hover:bg-slate-2 hover:text-snow" aria-label={`Copy ${label}`}><Copy size={14} /></button>
+    </div>
+  );
 }
 
 const PROVIDERS: { name: string; issuer: string; note: string }[] = [
@@ -24,11 +37,12 @@ export function Sso() {
   const [domainInput, setDomainInput] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [scimToken, setScimToken] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const r = await api.get<Settings>("/api/admin/sso");
     setS(r);
-    setDomains(r.domains);
+    setDomains(r.domains.map((d) => d.domain));
     if (r.config) setF({ ...r.config, clientSecret: "" });
   }, []);
   useEffect(() => void load(), [load]);
@@ -70,7 +84,32 @@ export function Sso() {
     setBusy(null);
   };
 
+  const verify = async (domain: string) => {
+    setBusy(`verify:${domain}`);
+    try {
+      await api.post(`/api/admin/sso/domains/${encodeURIComponent(domain)}/verify`);
+      toast(`${domain} is verified. Sign-ins for it now go to your provider.`);
+      await load();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not verify.", "error");
+    }
+    setBusy(null);
+  };
+  const newScimToken = async () => {
+    if (s?.scim.token && !confirm("Make a new token? The current one stops working at once, so update your identity provider straight after.")) return;
+    setBusy("scim");
+    try {
+      const r = await api.post<{ token: string }>("/api/admin/sso/scim/token");
+      setScimToken(r.token);
+      await load();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not make a token.", "error");
+    }
+    setBusy(null);
+  };
+
   if (!s) return <div className="flex h-64 items-center justify-center"><Spinner /></div>;
+  const status = new Map(s.domains.map((d) => [d.domain, d]));
   const ro = !s.canEdit;
 
   return (
@@ -111,10 +150,11 @@ export function Sso() {
               <Input disabled={ro} type="password" autoComplete="off" value={f.clientSecret} onChange={(e) => setF({ ...f, clientSecret: e.target.value })} placeholder={s.config?.hasSecret ? "••••••••" : ""} />
             </Field>
           </div>
-          <Field label="Email domains" hint="People whose email ends in one of these are sent to your provider. A domain can belong to one organisation; public ones like gmail.com cannot be used.">
+          <Field label="Email domains" hint="People whose email ends in one of these are sent to your provider once you verify the domain below. Public ones like gmail.com cannot be used.">
             <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-line-2 bg-ink-2 px-2 py-1.5 focus-within:border-teal-400">
               {domains.map((d) => (
-                <span key={d} className="inline-flex items-center gap-1 rounded-md bg-slate-3 px-2 py-0.5 text-[12.5px] text-snow">
+                <span key={d} className="inline-flex items-center gap-1 rounded-md bg-slate-3 px-2 py-0.5 text-[12.5px] text-snow" title={status.get(d)?.verified ? "Verified" : status.has(d) ? "Not verified yet" : "Not saved yet"}>
+                  {status.get(d)?.verified ? <BadgeCheck size={13} className="text-teal-300" /> : <CircleDashed size={13} className="text-amber-400" />}
                   {d}
                   {!ro ? <button onClick={() => setDomains(domains.filter((x) => x !== d))} className="text-fog hover:text-rose-400" aria-label={`Remove ${d}`}>×</button> : null}
                 </span>
@@ -151,6 +191,54 @@ export function Sso() {
           <Button variant="primary" className="ml-auto" loading={busy === "save"} disabled={!f.issuer || !f.clientId || (!f.clientSecret && !s.config?.hasSecret)} onClick={() => void save()}>Save</Button>
         </div>
       ) : null}
+      {s.domains.length ? (
+        <Panel title="4 · Prove you own each domain" className="mt-4">
+          <p className="text-[13.5px] text-mist">Add a TXT record to each domain's DNS. Until a domain is verified, sign-ins for it are not sent to your provider and no accounts are created for it. Another organisation can only claim a domain by verifying it first.</p>
+          <ul className="mt-3 space-y-3">
+            {s.domains.map((d) => (
+              <li key={d.domain} className="rounded-xl border border-line bg-ink-2/60 p-3">
+                <div className="flex items-center gap-2 text-[13.5px]">
+                  {d.verified ? <BadgeCheck size={16} className="text-teal-300" /> : <CircleDashed size={16} className="text-amber-400" />}
+                  <span className="font-medium text-snow">{d.domain}</span>
+                  <span className={`text-[12px] ${d.verified ? "text-teal-300" : "text-amber-400"}`}>{d.verified ? `verified ${d.verifiedAt ? ago(d.verifiedAt) : ""}` : "not verified"}</span>
+                  {!d.verified && !ro ? <Button size="sm" className="ml-auto" loading={busy === `verify:${d.domain}`} onClick={() => void verify(d.domain)}>Check DNS</Button> : null}
+                </div>
+                {!d.verified && d.record ? (
+                  <div className="mt-2.5 space-y-1.5">
+                    <CopyLine label="Name" value={d.record.name} />
+                    <CopyLine label="Type" value={d.record.type} />
+                    <CopyLine label="Value" value={d.record.value} />
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
+
+      <Panel title={<span className="flex items-center gap-1.5"><UsersRound size={15} /> Provisioning with SCIM</span>} className="mt-4">
+        <p className="text-[13.5px] text-mist">Let your provider create people, keep their names and teams in step, and switch them off the moment they leave. Groups you push become teams. Roles stay a Tessera decision, and owners cannot be switched off from the provider.</p>
+        <div className="mt-3 space-y-1.5">
+          <CopyLine label="Base URL" value={s.scim.baseUrl} />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[12.5px]">
+          {s.scim.token ? <span className="text-mist">Token <span className="font-mono text-snow">{s.scim.token.prefix}…</span> made {ago(s.scim.token.createdAt)} · {s.scim.token.lastUsedAt ? `last used ${ago(s.scim.token.lastUsedAt)}` : "not used yet"}</span> : <span className="text-fog">No token yet.</span>}
+          {!ro ? (
+            <span className="ml-auto flex gap-2">
+              {s.scim.token ? <Button size="sm" onClick={() => { if (confirm("Revoke the SCIM token? Provisioning stops until you make a new one.")) void api.del("/api/admin/sso/scim/token").then(load); }}>Revoke</Button> : null}
+              <Button size="sm" variant={s.scim.token ? "secondary" : "primary"} loading={busy === "scim"} onClick={() => void newScimToken()}>{s.scim.token ? <><RefreshCw size={13} /> Rotate</> : "Make a token"}</Button>
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-3 text-[12px] text-fog">Okta: Applications → your app → Provisioning → SCIM, authentication "HTTP Header". Entra ID: Enterprise applications → your app → Provisioning → Automatic, Tenant URL and Secret token.</p>
+      </Panel>
+
+      <Modal open={!!scimToken} onClose={() => setScimToken(null)} title="SCIM token">
+        <p className="text-[13.5px] text-mist">Paste it into your identity provider now. Tessera stores only a hash and will not show it again.</p>
+        <div className="mt-3"><CopyLine label="Token" value={scimToken ?? ""} /></div>
+        <div className="mt-4 flex justify-end"><Button variant="primary" onClick={() => setScimToken(null)}>Done</Button></div>
+      </Modal>
+
     </div>
   );
 }
