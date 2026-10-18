@@ -287,11 +287,18 @@ export async function setControl(orgId: string, id: string, control: SessionReco
   await pool.query("UPDATE sessions SET control = $3 WHERE org_id = $1 AND id = $2", [orgId, id, JSON.stringify(control)]);
 }
 
+/**
+ * Delete data past its retention. Each organisation may set its own windows
+ * (orgs.settings.data); an organisation under legal hold is skipped entirely.
+ * The audit log is never pruned, so its hash chain always verifies from the start.
+ */
 export async function prune(retainSamplesDays: number, retainEventsDays: number, retainSessionsDays: number): Promise<void> {
-  await pool.query("DELETE FROM samples WHERE ts < now() - ($1 || ' days')::interval", [String(retainSamplesDays)]);
-  await pool.query("DELETE FROM events WHERE ts < now() - ($1 || ' days')::interval", [String(retainEventsDays)]);
-  await pool.query("DELETE FROM policy_decisions WHERE created_at < now() - ($1 || ' days')::interval", [String(retainEventsDays)]);
-  await pool.query("DELETE FROM sessions WHERE COALESCE(ended_at, dropped_at) < now() - ($1 || ' days')::interval", [String(retainSessionsDays)]);
+  const held = "COALESCE(o.settings->'data'->'legalHold', 'null'::jsonb) <> 'null'::jsonb";
+  const days = (key: string, def: number) => `make_interval(days => COALESCE((o.settings->'data'->>'${key}')::int, ${Math.trunc(def)}))`;
+  await pool.query(`DELETE FROM samples x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.ts < now() - ${days("retainSamplesDays", retainSamplesDays)}`);
+  await pool.query(`DELETE FROM events x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.ts < now() - ${days("retainEventsDays", retainEventsDays)}`);
+  await pool.query(`DELETE FROM policy_decisions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.created_at < now() - ${days("retainEventsDays", retainEventsDays)}`);
+  await pool.query(`DELETE FROM sessions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND COALESCE(x.ended_at, x.dropped_at) < now() - ${days("retainSessionsDays", retainSessionsDays)}`);
   await pool.query("DELETE FROM user_sessions WHERE expires_at < now()");
   await pool.query("DELETE FROM enrolment_codes WHERE expires_at < now() - interval '1 day'");
 }
