@@ -18,6 +18,11 @@ describe("rbac", () => {
     expect(canActOn(p("approver", "t1"), { ownerId: "u2", teamId: "t2" })).toBe(false);
     expect(canActOn(p("approver", null), { ownerId: "u2", teamId: null })).toBe(false);
   });
+  it("someone a session is handed to can act on it", () => {
+    expect(canActOn(p("operator"), { ownerId: "u2", teamId: "t2", assigneeId: "u1" })).toBe(true);
+    expect(canActOn(p("viewer"), { ownerId: "u2", teamId: "t2", assigneeId: "u1" })).toBe(false);
+    expect(canActOn(p("operator"), { ownerId: "u2", teamId: "t2", assigneeId: "u3" })).toBe(false);
+  });
   it("admins act anywhere; operators not on others' sessions", () => {
     expect(canActOn(p("admin"), { ownerId: "u2", teamId: "t9" })).toBe(true);
     expect(canActOn(p("operator"), { ownerId: "u2", teamId: "t1" })).toBe(false);

@@ -8,6 +8,7 @@ import { Landing } from "./pages/Landing";
 import { Account, Audit, Prices } from "./pages/app/Admin";
 import { Notifications } from "./pages/app/Notifications";
 import { Budgets } from "./pages/app/Budgets";
+import { Compare } from "./pages/app/Compare";
 import { Devices } from "./pages/app/Devices";
 import { History } from "./pages/app/History";
 import { People } from "./pages/app/People";
@@ -45,6 +46,7 @@ function App() {
           <Route path="sessions/:id" element={<SessionPage />} />
           <Route path="history" element={<History />} />
           <Route path="spend" element={<Spend />} />
+          <Route path="compare" element={<Compare />} />
           <Route path="devices" element={<Devices />} />
           <Route path="settings" element={<Account />} />
           <Route element={<RequireAdmin />}>

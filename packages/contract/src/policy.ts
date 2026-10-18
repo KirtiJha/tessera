@@ -64,6 +64,8 @@ export type DecideRequest = z.infer<typeof DecideRequest>;
 export interface DecideResponse {
   decision: "allow" | "deny" | "ask";
   reason: string | null;
+  /** Stop the agent's turn: Claude Code is told not to continue (someone pressed Stop in Tessera). */
+  stop?: boolean;
 }
 
 /** The facts a rule is matched against. */

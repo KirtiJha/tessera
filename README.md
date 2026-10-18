@@ -67,6 +67,10 @@ Tessera never connects to an engineer's machine. The reporter posts snapshots an
 - A **plan** (`ExitPlanMode`) works the same way: approve or send back with feedback.
 - A **message** is delivered the next time the session pauses (`Stop` hook) as an instruction to continue with.
 - **Pause** and a reached **hard budget with enforcement** deny every new tool call (`PreToolUse` hook) with a reason the engineer sees in the terminal.
+- **Stop** refuses the session's next tool call and ends its turn (`continue: false`), handing control back to the engineer. It applies once.
+- **Hand over** gives a colleague the session for a while: they are told when it waits, and can answer, stop or pause it.
+
+Every session has a **Replay** tab: a scrubber over its whole run with cost, prompts waiting on people, agents, failures and policy decisions laid on it, and the session's state at the playhead. **Compare** puts two sessions side by side (cost, time, tokens, agents, failures, waits, tool calls); pick two in History or start from a session.
 
 Only the session's owner, an approver on their team, or an admin can act; every action is written to the audit log.
 

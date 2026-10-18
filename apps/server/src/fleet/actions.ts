@@ -30,7 +30,7 @@ export async function answerAsk(
 ): Promise<{ deliveryId: string; outcome: string }> {
   const rec = fleet.get(p.orgId, sessionId);
   if (!rec) fail(404, "That session is no longer live.");
-  if (!canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId })) fail(403, "You cannot act on this session.");
+  if (!canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id })) fail(403, "You cannot act on this session.");
   if (!rec.openAsk || rec.openAsk.id !== body.askId) fail(409, "That prompt is no longer open.");
   const payload = { decision: body.decision, text: body.text ?? null, option: body.option ?? null, by: p.name, via };
   const deliveryId = await fleet.queueDelivery(p.orgId, sessionId, "answer", body.askId, payload, p.userId);

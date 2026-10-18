@@ -45,6 +45,10 @@ export interface SessionView {
   openAsk: OpenAsk | null;
   tags: Record<string, string>;
   continuedFrom: string | null;
+  /** Handed over to this person, who is told when it waits and may act on it. */
+  assignee: { id: string; name: string } | null;
+  /** A stop was requested from Tessera and not yet applied. */
+  stopRequested: boolean;
 }
 
 export interface AgentView {

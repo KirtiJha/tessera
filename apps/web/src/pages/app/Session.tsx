@@ -1,11 +1,12 @@
 import type { AgentView, EventView, SessionView } from "@tessera/contract";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Pause, Play, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Hand, OctagonX, Pause, Play, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AgentStrip, ContextBar, KIND, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
-import { Button, Panel, Spinner, Textarea, useToast } from "../../components/ui";
+import { Replay } from "../../components/Replay";
+import { Button, Modal, Panel, Select, Spinner, Textarea, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { sessionKind, sessionLabel, useFleet } from "../../lib/fleet";
 import { ago, fmtDate, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../../lib/format";
@@ -83,6 +84,14 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
   const [message, setMessage] = useState("");
   const ask = s.openAsk;
   const kind = sessionKind(s);
+  const [stopOpen, setStopOpen] = useState(false);
+  const [stopReason, setStopReason] = useState("");
+  const [handOpen, setHandOpen] = useState(false);
+  const [people, setPeople] = useState<{ id: string; name: string; role: string; team: string | null }[]>([]);
+  const [handTo, setHandTo] = useState("");
+  useEffect(() => {
+    if (handOpen && !people.length) void api.get<{ people: typeof people }>("/api/fleet/people").then((r) => setPeople(r.people));
+  }, [handOpen, people.length]);
 
   const act = async (label: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(label);
@@ -99,7 +108,7 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
   const answer = (decision: string, extra: Record<string, unknown> = {}) =>
     act(decision, () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/answer`, { askId: ask!.id, decision, ...extra }), decision === "deny" || decision === "reject" ? "Sent. The session will see it on its next check." : "Sent. The session will continue in a moment.");
 
-  if (!canAct) return <p className="text-[13px] text-fog">Only this session's owner, an approver on their team, or an admin can act on it.</p>;
+  if (!canAct) return <p className="text-[13px] text-fog">Only this session's owner, someone it was handed to, an approver on their team, or an admin can act on it.</p>;
   if (kind === "done") return <p className="text-[13px] text-fog">This session has ended.</p>;
 
   return (
@@ -142,6 +151,8 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
         <Textarea rows={3} placeholder="Delivered the next time the session pauses, as an instruction to continue with." value={message} onChange={(e) => setMessage(e.target.value)} />
         <div className="mt-2 flex items-center gap-2">
           <Button size="sm" disabled={!message.trim()} loading={busy === "message"} onClick={() => act("message", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/message`, { text: message }).then(() => setMessage("")), "Message queued for the session.")}><Send size={14} /> Send</Button>
+          <Button size="sm" disabled={s.stopRequested || s.status !== "running"} title={s.status !== "running" ? "Stop applies while the session is working" : undefined} loading={busy === "stop"} onClick={() => setStopOpen(true)}><OctagonX size={14} /> {s.stopRequested ? "Stopping…" : "Stop"}</Button>
+          <Button size="sm" onClick={() => setHandOpen(true)}><Hand size={14} /> {s.assignee ? "Reassign" : "Hand over"}</Button>
           {s.tags.paused ? (
             <Button size="sm" variant="amber" loading={busy === "resume"} onClick={() => act("resume", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/pause`, { paused: false }), "Resumed. New tool calls are allowed again.")}><Play size={14} /> Resume</Button>
           ) : (
@@ -149,6 +160,28 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
           )}
         </div>
       </div>
+
+      <Modal open={stopOpen} onClose={() => setStopOpen(false)} title="Stop this session's turn">
+        <p className="text-[13.5px] leading-relaxed text-mist">Claude's next tool call is refused and its turn ends, handing control back to {s.ownerName ?? "the engineer"} in their terminal. The session stays open; nothing is undone.</p>
+        <Textarea className="mt-3" rows={2} maxLength={300} placeholder="Why (shown in their terminal, optional)" value={stopReason} onChange={(e) => setStopReason(e.target.value)} />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button onClick={() => setStopOpen(false)}>Cancel</Button>
+          <Button variant="danger" loading={busy === "stop"} onClick={() => { setStopOpen(false); void act("stop", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/stop`, { reason: stopReason.trim() || undefined }), "Stop sent. It applies at the next tool call."); setStopReason(""); }}>Stop at the next tool call</Button>
+        </div>
+      </Modal>
+
+      <Modal open={handOpen} onClose={() => setHandOpen(false)} title="Hand this session over">
+        <p className="text-[13.5px] leading-relaxed text-mist">The person you choose is told when it waits, in Slack and the other channels, and can answer, stop or pause it. {s.ownerName ?? "The owner"} keeps their rights too.</p>
+        <Select className="mt-3" value={handTo || s.assignee?.id || ""} onChange={(e) => setHandTo(e.target.value)} aria-label="Hand over to">
+          <option value="">Choose someone…</option>
+          {people.filter((p) => p.id !== s.ownerId).map((p) => <option key={p.id} value={p.id}>{p.name}{p.team ? ` · ${p.team}` : ""} ({p.role})</option>)}
+        </Select>
+        <div className="mt-4 flex justify-end gap-2">
+          {s.assignee ? <Button className="mr-auto" onClick={() => { setHandOpen(false); void act("hand", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/assign`, { userId: null }), `Handed back to ${s.ownerName ?? "the owner"}.`); }}>Hand back to {s.ownerName ?? "the owner"}</Button> : null}
+          <Button onClick={() => setHandOpen(false)}>Cancel</Button>
+          <Button variant="primary" disabled={!(handTo || s.assignee?.id) || (handTo || s.assignee?.id) === s.assignee?.id} onClick={() => { const to = people.find((p) => p.id === handTo); setHandOpen(false); void act("hand", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/assign`, { userId: handTo }), `Handed to ${to?.name ?? "them"}.`); }}>Hand over</Button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -162,6 +195,8 @@ export function SessionPage() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [agent, setAgent] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "replay" ? "replay" : "overview";
 
   const load = useCallback(async () => {
     try {
@@ -199,6 +234,8 @@ export function SessionPage() {
               <StateShape kind={kind} size={14} />
               <h1 className="truncate font-display text-[26px] font-semibold tracking-tight text-snow">{sessionLabel(s)}</h1>
               {s.tags.paused ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400">paused</span> : null}
+              {s.stopRequested ? <span className="rounded-md bg-rose-600/20 px-2 py-0.5 text-[11.5px] font-medium text-rose-400">stopping</span> : null}
+              {s.assignee ? <span className="rounded-md bg-violet-400/15 px-2 py-0.5 text-[11.5px] font-medium text-violet-400">handed to {s.assignee.name}</span> : null}
             </div>
             <div className="mt-1 text-[13px] text-fog">
               {s.ownerName ?? "Unassigned"}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.cwd ? ` · ${s.cwd}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}{s.git?.worktree ? " (worktree)" : ""}
@@ -222,6 +259,19 @@ export function SessionPage() {
         </div>
       </div>
 
+      <div className="mt-4 flex items-center gap-1 border-b border-line" role="tablist">
+        {(["overview", "replay"] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setParams(t === "overview" ? {} : { tab: t }, { replace: true })} className={`relative px-3 py-2 text-[13.5px] font-medium ${tab === t ? "text-snow" : "text-fog hover:text-snow"}`}>
+            {t === "overview" ? "Overview" : "Replay"}
+            {tab === t ? <motion.span layoutId="session-tab" className="absolute inset-x-2 -bottom-px h-0.5 rounded bg-teal-400" /> : null}
+          </button>
+        ))}
+        <Link to={`/app/compare?a=${encodeURIComponent(s.id)}`} className="ml-auto pb-1 text-[12.5px] text-fog hover:text-teal-300">Compare with another session →</Link>
+      </div>
+
+      {tab === "replay" ? (
+        <div className="mt-4"><Panel><Replay sessionId={s.id} live={detail.live} /></Panel></div>
+      ) : (
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-4">
           <Panel title="Agents">
@@ -313,6 +363,7 @@ export function SessionPage() {
           </Panel>
         </div>
       </div>
+      )}
     </div>
   );
 }

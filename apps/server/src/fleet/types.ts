@@ -35,6 +35,17 @@ export interface SessionRecord {
   openAsk: OpenAsk | null;
   tags: Record<string, string>;
   continuedFrom: string | null;
-  control: { paused: boolean; reason: string | null; by: string | null };
+  control: SessionControl;
   agents: AgentReport[];
+}
+
+/** What people in Tessera have done to a session, kept on the server (rows from before a field existed lack it). */
+export interface SessionControl {
+  paused: boolean;
+  reason: string | null;
+  by: string | null;
+  /** Stop requested: the next tool call is refused and Claude is told to stop, once. */
+  stop?: { by: string; reason: string | null; at: string } | null;
+  /** Handed over: this person is told when the session waits and may act on it. */
+  assignee?: { id: string; name: string; by: string; at: string } | null;
 }

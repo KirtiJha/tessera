@@ -89,7 +89,7 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: Ses
             <div className="min-w-0 flex-1">
               <div className="truncate text-[15px] font-semibold leading-tight text-snow">{sessionLabel(s)}</div>
               <div className="mt-0.5 truncate text-[12px] text-fog">
-                {s.ownerName ?? "Unassigned"}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}
+                {s.ownerName ?? "Unassigned"}{s.assignee ? ` → ${s.assignee.name}` : ""}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}
               </div>
             </div>
             <span className="shrink-0 rounded-md border border-line-2 px-1.5 py-0.5 text-[11px] text-mist">{modelShort(s.model)}{s.effort ? ` · ${s.effort}` : ""}</span>
