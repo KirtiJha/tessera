@@ -208,6 +208,11 @@ export class Fleet {
       agents: s.agents,
     };
     if (rec.status === "ended" && !rec.endedAt) rec.endedAt = now;
+    // A stop that never met a tool call is moot once the turn is over.
+    if (rec.control.stop && rec.status !== "running") {
+      rec.control = { ...rec.control, stop: null };
+      void store.setControl(orgId, rec.id, rec.control).catch(() => {});
+    }
 
     const table = await priceTableFor(orgId);
     const cost = priceFor(rec.usageByModel, table).usd;
@@ -283,7 +288,7 @@ export class Fleet {
   private async afterIngest(rec: SessionRecord, prev: SessionRecord | null | undefined, fresh: ActivityEvent[]): Promise<void> {
     const orgId = rec.orgId;
     const label = rec.name ?? rec.git?.repo ?? rec.cwd?.split("/").pop() ?? rec.id.slice(0, 8);
-    const owner = rec.ownerName ?? "unknown";
+    const owner = rec.control.assignee?.name ?? rec.ownerName ?? "unknown";
     const waitingNow = rec.status === "waiting" && rec.waitReason !== "background" && rec.waitReason !== "idle";
     const waitKey = waitKeyFor(orgId, rec.id, rec.openAsk?.id ?? rec.waitReason ?? "");
     if (waitingNow && !this.waiting.has(waitKey)) {
@@ -293,7 +298,7 @@ export class Fleet {
         title: `${label} is waiting on ${owner}`,
         text: rec.openAsk ? rec.openAsk.prompt.slice(0, 500) : `Reason: ${rec.waitReason ?? "input"}`,
         sessionId: rec.id,
-        fields: { Owner: owner, Model: rec.model ?? "—", Machine: rec.hostname ?? "—", ...(rec.openAsk?.tool ? { Tool: rec.openAsk.tool } : {}) },
+        fields: { Owner: rec.ownerName ?? "unknown", ...(rec.control.assignee ? { "Handed to": rec.control.assignee.name } : {}), Model: rec.model ?? "—", Machine: rec.hostname ?? "—", ...(rec.openAsk?.tool ? { Tool: rec.openAsk.tool } : {}) },
         ...(rec.openAsk ? { ask: { id: rec.openAsk.id, kind: rec.openAsk.kind } } : {}),
       };
       this.waiting.set(waitKey, { orgId, sessionId: rec.id, since: Date.now(), n });
@@ -351,6 +356,14 @@ export class Fleet {
   async decide(device: DevicePrincipal, req: DecideRequest): Promise<DecideResponse> {
     const orgId = device.orgId;
     const rec = this.get(orgId, req.sessionId);
+    if (rec?.control.stop) {
+      // One-shot: refuse this call and tell Claude Code to stop the turn, then clear the request.
+      const stop = rec.control.stop;
+      rec.control = { ...rec.control, stop: null };
+      await store.setControl(orgId, rec.id, rec.control);
+      this.markDirty(rec);
+      return { decision: "deny", stop: true, reason: `Stopped from Tessera by ${stop.by}${stop.reason ? `: ${stop.reason}` : "."} Wait for the engineer before continuing.` };
+    }
     if (rec?.control.paused) return { decision: "deny", reason: `Session paused in Tessera${rec.control.reason ? `: ${rec.control.reason}` : ""}` };
     const scope = rec ?? (await store.loadSession(orgId, req.sessionId));
     if (scope) {
@@ -423,7 +436,27 @@ export class Fleet {
   async setPaused(orgId: string, sessionId: string, paused: boolean, reason: string | null, by: string): Promise<SessionRecord | null> {
     const rec = this.get(orgId, sessionId);
     if (!rec) return null;
-    rec.control = { paused, reason: paused ? reason : null, by: paused ? by : null };
+    rec.control = { ...rec.control, paused, reason: paused ? reason : null, by: paused ? by : null };
+    await store.setControl(orgId, sessionId, rec.control);
+    this.markDirty(rec);
+    return rec;
+  }
+
+  /** Ask the session to stop at its next tool call. */
+  async requestStop(orgId: string, sessionId: string, by: string, reason: string | null): Promise<SessionRecord | null> {
+    const rec = this.get(orgId, sessionId);
+    if (!rec) return null;
+    rec.control = { ...rec.control, stop: { by, reason, at: new Date().toISOString() } };
+    await store.setControl(orgId, sessionId, rec.control);
+    this.markDirty(rec);
+    return rec;
+  }
+
+  /** Hand the session to someone else (or back, with null). */
+  async assign(orgId: string, sessionId: string, assignee: { id: string; name: string } | null, by: string): Promise<SessionRecord | null> {
+    const rec = this.get(orgId, sessionId);
+    if (!rec) return null;
+    rec.control = { ...rec.control, assignee: assignee ? { ...assignee, by, at: new Date().toISOString() } : null };
     await store.setControl(orgId, sessionId, rec.control);
     this.markDirty(rec);
     return rec;

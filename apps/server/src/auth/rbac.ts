@@ -15,9 +15,12 @@ export interface Principal {
   email: string;
 }
 
-/** Can this principal act on (answer, approve, message) a session owned by `ownerId` in `teamId`? */
-export function canActOn(p: Principal, session: { ownerId: string | null; teamId: string | null }): boolean {
-  if (session.ownerId === p.userId) return atLeast(p.role, "operator");
+/**
+ * Can this principal act on (answer, approve, message, stop) a session owned by
+ * `ownerId` in `teamId`, possibly handed over to `assigneeId`?
+ */
+export function canActOn(p: Principal, session: { ownerId: string | null; teamId: string | null; assigneeId?: string | null }): boolean {
+  if (session.ownerId === p.userId || (session.assigneeId && session.assigneeId === p.userId)) return atLeast(p.role, "operator");
   if (atLeast(p.role, "admin")) return true;
   if (p.role === "approver") return session.teamId !== null && session.teamId === p.teamId;
   return false;

@@ -59,5 +59,7 @@ export function deriveSession(rec: SessionRecord, table: ModelPrice[], now: numb
     openAsk: rec.openAsk,
     tags: { ...rec.tags, ...(rec.control.paused ? { paused: rec.control.reason ?? "paused" } : {}) },
     continuedFrom: rec.continuedFrom,
+    assignee: rec.control.assignee ? { id: rec.control.assignee.id, name: rec.control.assignee.name } : null,
+    stopRequested: !!rec.control.stop,
   };
 }

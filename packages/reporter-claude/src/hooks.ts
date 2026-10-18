@@ -125,7 +125,13 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
         }
         if (cfg) {
           const d = await post<DecideResponse>(cfg, "/api/ingest/decide", decideRequest(sid, tool, input.tool_input), 1500);
-          if (d?.decision === "deny") {
+          if (d?.decision === "deny" && d.stop) {
+            // Someone pressed Stop in Tessera: refuse this call and end the turn, back to the engineer.
+            addEvent(s, "note", `Stopped from Tessera: ${d.reason ?? ""}`, agentId);
+            s.status = "waiting";
+            s.waitReason = "idle";
+            output = { continue: false, stopReason: d.reason ?? "Stopped from Tessera.", hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason ?? "Stopped from Tessera." } };
+          } else if (d?.decision === "deny") {
             addEvent(s, "note", `Tessera denied ${toolSummary(tool, input.tool_input)}: ${d.reason ?? "policy"}`, agentId);
             output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason ?? "Denied by Tessera policy." } };
           } else if (d?.decision === "ask") {
