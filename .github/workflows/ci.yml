@@ -46,5 +46,7 @@ jobs:
           export TESSERA_HOME=$RUNNER_TEMP/t CLAUDE_CONFIG_DIR=$RUNNER_TEMP/c && mkdir -p $CLAUDE_CONFIG_DIR
           npx -y --package=http://localhost:4700/downloads/tessera-reporter.tgz tessera-reporter install
           grep -q "tessera-reporter.mjs" $CLAUDE_CONFIG_DIR/settings.json
+      - name: CLI installs with npx from the server
+        run: npx -y --package=http://localhost:4700/downloads/tessera-cli.tgz tessera --version | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$"
       - name: Container image
         run: docker build -t tessera:ci .

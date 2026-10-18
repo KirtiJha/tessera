@@ -27,8 +27,8 @@ export function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
-/** Random opaque token with a readable prefix: tsr_ for devices, tss_ for browser sessions, tse_ for enrolment codes. */
-export function newToken(prefix: "tsr" | "tss" | "tse" | "tsi"): string {
+/** Random opaque token with a readable prefix: tsr_ devices, tss_ browser sessions, tse_ enrolment codes, tsi_ invites, tsk_ API keys. */
+export function newToken(prefix: "tsr" | "tss" | "tse" | "tsi" | "tsk"): string {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
 }
 

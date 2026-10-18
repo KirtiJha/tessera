@@ -17,6 +17,7 @@ import { SessionPage } from "./pages/app/Session";
 import { Sso } from "./pages/app/Sso";
 import { Shell } from "./pages/app/Shell";
 import { Analytics } from "./pages/app/Analytics";
+import { ApiKeys } from "./pages/app/ApiKeys";
 import { Wall } from "./pages/app/Wall";
 import "./styles.css";
 
@@ -50,6 +51,7 @@ function App() {
           <Route path="compare" element={<Compare />} />
           <Route path="devices" element={<Devices />} />
           <Route path="settings" element={<Account />} />
+          <Route path="keys" element={<ApiKeys />} />
           <Route element={<RequireAdmin />}>
             <Route path="people" element={<People />} />
             <Route path="budgets" element={<Budgets />} />
