@@ -163,12 +163,12 @@ export async function run(argv: string[]): Promise<number> {
   const a = parseArgs(argv, ["waiting", "json", "sessions", "dry-run", "help", "h", "version"]);
   const cmd = a._[0];
   try {
-    if (!cmd || a.flags.help || a.flags.h || cmd === "help") {
-      process.stdout.write(HELP);
+    if (cmd === "version" || (!cmd && a.flags.version)) {
+      out(VERSION);
       return 0;
     }
-    if (cmd === "version" || a.flags.version) {
-      out(VERSION);
+    if (!cmd || a.flags.help || a.flags.h || cmd === "help") {
+      process.stdout.write(HELP);
       return 0;
     }
     if (cmd === "login") {

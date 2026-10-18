@@ -62,6 +62,10 @@ describe("cli", () => {
   it("parses flags and positionals", () => {
     expect(parseArgs(["deny", "abc", "--reason", "too risky", "--dry-run", "-o", "x.json", "--by=team"], ["dry-run"])).toEqual({ _: ["deny", "abc"], flags: { reason: "too risky", "dry-run": true, o: "x.json", by: "team" } });
   });
+  it("prints its version", async () => {
+    expect(await cli("--version")).toBe(0);
+    expect(outText).toMatch(/^\d+\.\d+\.\d+\n$/);
+  });
   it("aligns tables", () => {
     expect(table(["A", "BB"], [["xxx", "1"], ["y", "22"]], [1])).toBe("A    BB\nxxx   1\ny    22");
   });
