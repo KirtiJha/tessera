@@ -72,7 +72,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me", async (req, reply) => {
     const p = await requireUser(req, reply);
     const org = await pool.query<{ name: string; slug: string; settings: Record<string, unknown> }>("SELECT name, slug, settings FROM orgs WHERE id = $1", [p.orgId]);
-    const team = p.teamId ? await pool.query<{ name: string }>("SELECT name FROM teams WHERE id = $1", [p.teamId]) : null;
+    const team = p.teamId ? await pool.query<{ name: string }>("SELECT name FROM teams WHERE id = $1 AND org_id = $2", [p.teamId, p.orgId]) : null;
     return {
       user: { id: p.userId, name: p.name, email: p.email, role: p.role, teamId: p.teamId, teamName: team?.rows[0]?.name ?? null },
       org: { id: p.orgId, name: org.rows[0]?.name, slug: org.rows[0]?.slug },

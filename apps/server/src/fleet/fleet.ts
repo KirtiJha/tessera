@@ -477,8 +477,19 @@ export class Fleet {
     return r.rows[0]!.id;
   }
 
-  async deliveryResult(orgId: string, id: string, result: Record<string, unknown>): Promise<boolean> {
-    const r = await pool.query("UPDATE deliveries SET result = $3, result_at = now() WHERE org_id = $1 AND id = $2", [orgId, id, JSON.stringify(result)]);
+  /** Does this session belong to the device's person (or is it unknown yet)? Other machines may not read or answer for it. */
+  async ownedBy(device: DevicePrincipal, sessionId: string): Promise<boolean> {
+    const rec = this.get(device.orgId, sessionId) ?? (await store.loadSession(device.orgId, sessionId));
+    return !rec || rec.ownerId === device.userId;
+  }
+
+  async deliveryResult(orgId: string, userId: string, id: string, result: Record<string, unknown>): Promise<boolean> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+    const r = await pool.query(
+      `UPDATE deliveries d SET result = $4, result_at = now() FROM sessions s
+        WHERE d.org_id = $1 AND d.id = $2 AND s.org_id = d.org_id AND s.id = d.session_id AND s.owner_id = $3`,
+      [orgId, id, userId, JSON.stringify(result)],
+    );
     return (r.rowCount ?? 0) > 0;
   }
 

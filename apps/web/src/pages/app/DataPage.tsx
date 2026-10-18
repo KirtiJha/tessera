@@ -17,7 +17,7 @@ interface Data {
   settings: Settings;
   defaults: { retainSamplesDays: number; retainEventsDays: number; retainSessionsDays: number };
   stored: { sessions: number; events: number; audit: number; oldest: string | null };
-  stream: { url: string; headerName: string | null; format: string; enabled: boolean; lastSentAt: string | null; lastError: string | null; pending: number } | null;
+  stream: { host: string; headerName: string | null; format: string; enabled: boolean; lastSentAt: string | null; lastError: string | null; pending: number } | null;
 }
 interface Person { id: string; name: string; email: string; role: string; status: string }
 
@@ -55,7 +55,7 @@ export function DataPage() {
     setD(r);
     setS(r.settings);
     setPeople(u.users);
-    if (r.stream) setSt((x) => ({ ...x, url: x.url || r.stream!.url, format: r.stream!.format, headerName: r.stream!.headerName ?? "" }));
+    if (r.stream) setSt((x) => ({ ...x, format: r.stream!.format, headerName: r.stream!.headerName ?? "" }));
   }, []);
   useEffect(() => void load(), [load]);
 
@@ -153,7 +153,7 @@ export function DataPage() {
             <Field label="Format" hint={FORMATS.find((f) => f[0] === st.format)?.[2]}>
               <Select disabled={ro} value={st.format} onChange={(e) => setSt({ ...st, format: e.target.value, headerName: e.target.value === "splunk_hec" ? "Authorization" : e.target.value === "json_array" ? "DD-API-KEY" : st.headerName })}>{FORMATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select>
             </Field>
-            <Field label="URL"><Input disabled={ro} value={st.url} onChange={(e) => setSt({ ...st, url: e.target.value })} placeholder="https://splunk.example.com:8088/services/collector/event" /></Field>
+            <Field label="URL" hint={d.stream ? `Saved for ${d.stream.host}, stored encrypted. Leave empty to keep it.` : "Stored encrypted."}><Input disabled={ro} value={st.url} onChange={(e) => setSt({ ...st, url: e.target.value })} placeholder={d.stream ? `https://${d.stream.host}/…` : "https://splunk.example.com:8088/services/collector/event"} /></Field>
             <Field label="Header name" hint="Optional."><Input disabled={ro} value={st.headerName} onChange={(e) => setSt({ ...st, headerName: e.target.value })} /></Field>
             <Field label="Header value" hint={d.stream?.headerName ? "Stored encrypted. Leave empty to keep it." : "Stored encrypted."}><Input disabled={ro} type="password" autoComplete="off" value={st.headerValue} onChange={(e) => setSt({ ...st, headerValue: e.target.value })} placeholder={d.stream?.headerName ? "••••••••" : "Splunk 00000000-…"} /></Field>
           </div>
@@ -162,7 +162,7 @@ export function DataPage() {
               <label className="mr-auto flex items-center gap-2 text-[12.5px] text-mist"><input type="checkbox" checked={st.fromStart} onChange={(e) => setSt({ ...st, fromStart: e.target.checked })} /> Send the whole log from the first entry</label>
               {d.stream ? <Button size="sm" onClick={() => void run("test", async () => { const r = await api.post<{ ok: boolean; error: string | null }>("/api/admin/data/audit/stream/test"); if (!r.ok) throw new ApiError(400, `The destination answered: ${r.error}`); }, "Test entry delivered.")}>Send a test</Button> : null}
               {d.stream ? <Button size="sm" onClick={() => { if (confirm("Stop streaming the audit log?")) void run("del", () => api.del("/api/admin/data/audit/stream"), "Streaming stopped."); }}>Remove</Button> : null}
-              <Button size="sm" variant="primary" disabled={!st.url} loading={busy === "stream"} onClick={() => void run("stream", () => api.put("/api/admin/data/audit/stream", { url: st.url, format: st.format, headerName: st.headerName.trim() || null, headerValue: st.headerValue || undefined, fromStart: st.fromStart }), "Streaming saved.")}>Save destination</Button>
+              <Button size="sm" variant="primary" disabled={!st.url && !d.stream} loading={busy === "stream"} onClick={() => void run("stream", () => api.put("/api/admin/data/audit/stream", { url: st.url.trim() || undefined, format: st.format, headerName: st.headerName.trim() || null, headerValue: st.headerValue || undefined, fromStart: st.fromStart }), "Streaming saved.")}>Save destination</Button>
             </div>
           ) : null}
         </div>

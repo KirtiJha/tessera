@@ -156,7 +156,7 @@ async function resolveUser(orgId: string, s: SsoRow, id: { issuer: string; subje
       );
       const e = byEmail.rows[0];
       if (e) {
-        if (e.org_id !== orgId) return { error: "This email belongs to another Tessera organisation." };
+        if (e.org_id !== orgId) return { error: "This identity cannot sign in to this organisation." };
         if (e.sso_subject && (e.sso_subject !== id.subject || e.sso_issuer !== id.issuer)) {
           return { error: "This account is linked to a different identity at your provider. Ask your Tessera owner to reset its SSO link." };
         }
@@ -165,7 +165,7 @@ async function resolveUser(orgId: string, s: SsoRow, id: { issuer: string; subje
       }
     }
     if (u) {
-      if (u.org_id !== orgId) return { error: "This identity belongs to another Tessera organisation." };
+      if (u.org_id !== orgId) return { error: "This identity cannot sign in to this organisation." };
       if (u.status === "disabled") return { error: "Your Tessera account is disabled. Ask an admin to enable it." };
       if (u.status === "invited") {
         await c.query("UPDATE users SET status = 'active', invite_token_hash = NULL, name = COALESCE($2, name) WHERE id = $1", [u.id, id.name]);

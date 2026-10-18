@@ -234,7 +234,7 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
   app.get("/people", async (req) => {
     const p = req.principal!;
     const r = await pool.query<{ id: string; name: string; role: Role; team_name: string | null }>(
-      `SELECT u.id, u.name, u.role, t.name AS team_name FROM users u LEFT JOIN teams t ON t.id = u.team_id
+      `SELECT u.id, u.name, u.role, t.name AS team_name FROM users u LEFT JOIN teams t ON t.id = u.team_id AND t.org_id = u.org_id
         WHERE u.org_id = $1 AND u.status = 'active' AND u.role <> 'viewer' ORDER BY u.name`,
       [p.orgId],
     );
