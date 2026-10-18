@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tessera.fullname" . }}
+  labels: {{- include "tessera.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "tessera.selector" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: {{- include "tessera.selector" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.metrics.annotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4700"
+        prometheus.io/path: /api/metrics
+        {{- end }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "tessera.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      # Live sessions and the stream are drained on SIGTERM; give in-flight long-polls time to finish.
+      terminationGracePeriodSeconds: 70
+      containers:
+        - name: tessera
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 4700, protocol: TCP }
+          envFrom:
+            - secretRef: { name: {{ include "tessera.secretName" . }} }
+          env:
+            - { name: NODE_ENV, value: production }
+            - { name: PUBLIC_URL, value: {{ .Values.publicUrl | quote }} }
+            - { name: ALLOWED_HOSTS, value: {{ .Values.allowedHosts | quote }} }
+            - { name: LOG_FORMAT, value: json }
+            - { name: LOG_LEVEL, value: {{ .Values.logLevel | quote }} }
+            - { name: RETAIN_SAMPLES_DAYS, value: {{ .Values.retention.samplesDays | quote }} }
+            - { name: RETAIN_EVENTS_DAYS, value: {{ .Values.retention.eventsDays | quote }} }
+            - { name: RETAIN_SESSIONS_DAYS, value: {{ .Values.retention.sessionsDays | quote }} }
+            - { name: INGEST_POOL_SIZE, value: {{ .Values.ingestPoolSize | quote }} }
+            {{- with .Values.bootstrap.orgName }}
+            - { name: BOOTSTRAP_ORG_NAME, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.bootstrap.adminEmail }}
+            - { name: BOOTSTRAP_ADMIN_EMAIL, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
+          startupProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 3
+            failureThreshold: 40   # migrations run at start; two minutes is plenty
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: tessera
+description: Tessera, the control plane for fleets of AI coding agents.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/KirtiJha/tessera
+sources:
+  - https://github.com/KirtiJha/tessera
+keywords: [ai, agents, claude-code, observability, governance]

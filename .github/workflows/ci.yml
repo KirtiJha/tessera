@@ -17,9 +17,15 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U tessera" --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       DATABASE_URL: postgres://tessera:tessera@localhost:5432/tessera
       SECRET_KEY: ci-secret-key-that-is-long-enough-0123456789
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -48,5 +54,42 @@ jobs:
           grep -q "tessera-reporter.mjs" $CLAUDE_CONFIG_DIR/settings.json
       - name: CLI installs with npx from the server
         run: npx -y --package=http://localhost:4700/downloads/tessera-cli.tgz tessera --version | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$"
+      - name: Browser end-to-end tests
+        run: |
+          pnpm --filter @tessera/e2e exec playwright install --with-deps chromium
+          pnpm --filter @tessera/e2e e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-report
+          path: |
+            e2e/report
+            e2e/test-results
       - name: Container image
         run: docker build -t tessera:ci .
+      - name: Container runs read-only as its own user, as the Helm chart runs it
+        run: |
+          docker run -d --name t --network host --read-only --tmpfs /tmp --user 10001:10001 \
+            -e NODE_ENV=production -e PORT=4710 -e PUBLIC_URL=http://localhost:4710 \
+            -e DATABASE_URL=$DATABASE_URL -e SECRET_KEY=$SECRET_KEY tessera:ci
+          for i in $(seq 1 30); do curl -fsS localhost:4710/api/health && break; sleep 1; done
+          curl -fsS -o /dev/null localhost:4710/downloads/tessera-cli.tgz
+          curl -fsS -H "Host: 10.0.0.7:4710" localhost:4710/api/health
+          docker logs t | tail -5
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Lint and render the chart
+        run: |
+          helm lint deploy/helm/tessera --set secret.databaseUrl=postgres://x --set secret.secretKey=0123456789abcdef0123456789abcdef
+          helm template t deploy/helm/tessera --set secret.databaseUrl=postgres://x --set secret.secretKey=0123456789abcdef0123456789abcdef --set replicaCount=3 --set redis.url=redis://r --set ingress.enabled=true > rendered.yaml
+          ! helm template t deploy/helm/tessera --set secret.databaseUrl=postgres://x --set secret.secretKey=0123456789abcdef0123456789abcdef --set replicaCount=2
+      - name: Validate against Kubernetes schemas
+        run: |
+          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          ./kubeconform -strict -summary rendered.yaml

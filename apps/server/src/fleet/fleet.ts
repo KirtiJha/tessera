@@ -111,7 +111,24 @@ export class Fleet {
   constructor(
     private hub: StreamHub,
     private log: FastifyBaseLogger,
-  ) {}
+  ) {
+    // With several replicas, each holds the whole live set: a report or an
+    // action on one is applied on the others, so any replica can answer for
+    // any session. Browsers are told once, by the replica that made the change.
+    hub.listen((m) => {
+      if (m.op === "set") {
+        const rec = m.rec as SessionRecord;
+        const key = `${m.orgId}:${rec.id}`;
+        this.orgMap(m.orgId).set(rec.id, rec);
+        this.lastTokens.delete(key);
+        this.agentSig.delete(key);
+      } else {
+        this.orgMap(m.orgId).delete(m.id);
+        this.lastTokens.delete(`${m.orgId}:${m.id}`);
+        this.agentSig.delete(`${m.orgId}:${m.id}`);
+      }
+    });
+  }
 
   async start(): Promise<void> {
     const recs = await store.loadLiveSessions(config.lingerMs);
@@ -339,6 +356,11 @@ export class Fleet {
       this.waiting.delete(k);
       await resolveNotifications(orgId, k, rec.status === "ended" ? "The session ended." : "Answered in the terminal, or the session moved on.", this.log);
     }
+    // The wait may have started on another replica: close it from the previous state too.
+    const prevKey = prev?.status === "waiting" ? waitKeyFor(orgId, rec.id, prev.openAsk?.id ?? prev.waitReason ?? "") : null;
+    if (prevKey && !(waitingNow && prevKey === waitKey)) {
+      await resolveNotifications(orgId, prevKey, rec.status === "ended" ? "The session ended." : "Answered in the terminal, or the session moved on.", this.log);
+    }
 
     for (const e of fresh) {
       if (e.kind === "agent.fail") {
@@ -509,6 +531,7 @@ export class Fleet {
   // ---- broadcasting ----------------------------------------------------
 
   private markDirty(rec: SessionRecord): void {
+    this.hub.replicate({ op: "set", orgId: rec.orgId, rec });
     let set = this.dirty.get(rec.orgId);
     if (!set) this.dirty.set(rec.orgId, (set = new Set()));
     set.add(rec.id);
@@ -576,6 +599,7 @@ export class Fleet {
     this.agentSig.delete(`${orgId}:${id}`);
     this.dirty.get(orgId)?.delete(id);
     this.hub.broadcast(orgId, { type: "removed", data: { id } });
+    this.hub.replicate({ op: "remove", orgId, id });
   }
 
   // ---- time ------------------------------------------------------------

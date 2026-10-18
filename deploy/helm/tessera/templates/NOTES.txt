@@ -1,0 +1,15 @@
+Tessera is starting. It runs its database migrations on start; the first pod
+is ready once they finish.
+
+  Console:   {{ .Values.publicUrl }}
+  Reporter:  npx -y --package={{ .Values.publicUrl }}/downloads/tessera-reporter.tgz tessera-reporter enrol --server {{ .Values.publicUrl }} --code XXXX-XXXX
+  CLI:       npx -y --package={{ .Values.publicUrl }}/downloads/tessera-cli.tgz tessera login --server {{ .Values.publicUrl }}
+{{- if not .Values.ingress.enabled }}
+
+No ingress is enabled. To try it locally:
+  kubectl port-forward svc/{{ include "tessera.fullname" . }} 4700:{{ .Values.service.port }}
+{{- end }}
+{{- if and (eq (int .Values.replicaCount) 1) (not .Values.autoscaling.enabled) }}
+
+One replica. For high availability set replicaCount: 2 (or autoscaling) and redis.url.
+{{- end }}

@@ -1,5 +1,6 @@
 import type { FastifyReply } from "fastify";
 import type { StreamMessage } from "@tessera/contract";
+import { randomUUID } from "node:crypto";
 import { Redis } from "ioredis";
 import { constants as zc, createGzip, type Gzip } from "node:zlib";
 import { config } from "../config.js";
@@ -48,8 +49,14 @@ export function openStream(reply: FastifyReply, acceptEncoding: string | undefin
  * REDIS_URL set, messages are published through Redis so every replica sees
  * them; otherwise they stay in-process.
  */
+/** A change to the live set, sent between replicas so each holds the same sessions. */
+export type ReplicaMessage = { op: "set"; orgId: string; rec: unknown } | { op: "remove"; orgId: string; id: string };
+
 export class StreamHub {
   private clients = new Map<string, Set<StreamClient>>();
+  /** This process, so it ignores its own replica messages. */
+  readonly instance = randomUUID();
+  private onReplica: ((m: ReplicaMessage) => void) | null = null;
   private pub: Redis | null = null;
   private sub: Redis | null = null;
   readonly maxClientsPerOrg = 500;
@@ -63,9 +70,20 @@ export class StreamHub {
     await this.pub.connect();
     await this.sub.connect();
     await this.sub.psubscribe("tessera:org:*");
+    await this.sub.subscribe("tessera:fleet");
     this.sub.on("pmessage", (_pattern: string, channel: string, message: string) => {
       const orgId = channel.slice("tessera:org:".length);
       this.deliver(orgId, message);
+    });
+    this.sub.on("message", (channel: string, message: string) => {
+      if (channel !== "tessera:fleet" || !this.onReplica) return;
+      const sep = message.indexOf("|");
+      if (message.slice(0, sep) === this.instance) return;
+      try {
+        this.onReplica(JSON.parse(message.slice(sep + 1)) as ReplicaMessage);
+      } catch (e) {
+        this.log.warn({ err: (e as Error).message }, "stream: bad replica message");
+      }
     });
     this.log.info({}, "stream: redis fan-out enabled");
   }
@@ -111,6 +129,22 @@ export class StreamHub {
       return;
     }
     this.deliver(orgId, line);
+  }
+
+  /** True when changes are shared with other replicas. */
+  get replicated(): boolean {
+    return this.pub !== null;
+  }
+
+  /** Tell the other replicas about a change to the live set. */
+  replicate(m: ReplicaMessage): void {
+    if (!this.pub) return;
+    this.pub.publish("tessera:fleet", `${this.instance}|${JSON.stringify(m)}`).catch((e: Error) => this.log.warn({ err: e.message }, "stream: replicate failed"));
+  }
+
+  /** Receive the other replicas' changes. */
+  listen(handler: (m: ReplicaMessage) => void): void {
+    this.onReplica = handler;
   }
 
   /** Send directly to one client (the snapshot on connect). */

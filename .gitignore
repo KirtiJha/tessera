@@ -10,3 +10,5 @@ coverage/
 .DS_Store
 .tessera/
 release/
+e2e/test-results/
+e2e/report/
