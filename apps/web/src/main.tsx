@@ -16,7 +16,7 @@ import { Policies } from "./pages/app/Policies";
 import { SessionPage } from "./pages/app/Session";
 import { Sso } from "./pages/app/Sso";
 import { Shell } from "./pages/app/Shell";
-import { Spend } from "./pages/app/Spend";
+import { Analytics } from "./pages/app/Analytics";
 import { Wall } from "./pages/app/Wall";
 import "./styles.css";
 
@@ -45,7 +45,8 @@ function App() {
           <Route index element={<Wall />} />
           <Route path="sessions/:id" element={<SessionPage />} />
           <Route path="history" element={<History />} />
-          <Route path="spend" element={<Spend />} />
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="spend" element={<Navigate to="/app/analytics" replace />} />
           <Route path="compare" element={<Compare />} />
           <Route path="devices" element={<Devices />} />
           <Route path="settings" element={<Account />} />

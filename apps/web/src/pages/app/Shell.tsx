@@ -1,4 +1,4 @@
-import { Activity, BellRing, KeyRound, ShieldCheck, Clock, DollarSign, Laptop, LogOut, PiggyBank, ScrollText, Settings, Tag, Users, Wallet } from "lucide-react";
+import { Activity, BarChart3, BellRing, KeyRound, ShieldCheck, Clock, Laptop, LogOut, PiggyBank, ScrollText, Settings, Tag, Users, Wallet } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Mark, Wordmark } from "../../components/Logo";
 import { useAuth } from "../../lib/auth";
@@ -20,7 +20,7 @@ function Nav() {
       <nav className="space-y-0.5">
         {link("/app", <Activity size={16} />, "Live wall", true)}
         {link("/app/history", <Clock size={16} />, "History")}
-        {link("/app/spend", <DollarSign size={16} />, "Spend")}
+        {link("/app/analytics", <BarChart3 size={16} />, "Analytics")}
       </nav>
       <div className="mt-5 px-3 text-[11.5px] font-medium text-ash">Your setup</div>
       <nav className="mt-1 space-y-0.5">

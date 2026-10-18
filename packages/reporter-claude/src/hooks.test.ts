@@ -13,3 +13,11 @@ describe("decideRequest", () => {
     expect(decideRequest("s1", "Task", { description: "explore" })).toEqual({ sessionId: "s1", tool: "Task" });
   });
 });
+
+describe("tagsFromEnv", async () => {
+  const { tagsFromEnv } = await import("./hooks.js");
+  it("reads key=value pairs, lowercases keys and ignores junk", () => {
+    expect(tagsFromEnv("Project=apollo, ticket=PAY-142,costcenter=CC-120,=x,novalue,paused=yes")).toEqual({ project: "apollo", ticket: "PAY-142", costcenter: "CC-120" });
+    expect(tagsFromEnv(undefined)).toEqual({});
+  });
+});

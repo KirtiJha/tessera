@@ -30,6 +30,8 @@ export interface SessionState {
   gitCheckedAt: number;
   name: string | null;
   continuedFrom: string | null;
+  /** Cost-allocation tags (TESSERA_TAGS). */
+  tags: Record<string, string>;
   lastReportAt: number;
   /** Delivery ids already acted on, so a retried delivery is not applied twice. */
   seenDeliveries: string[];
@@ -71,6 +73,7 @@ export function loadState(id: string, cwd: string | null, transcriptPath: string
     agents: {},
     toolCalls: {},
     blowouts: 0,
+    tags: {},
     outbox: [],
     seq: 0,
     git: null,
