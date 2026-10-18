@@ -69,13 +69,13 @@ jobs:
         run: docker build -t tessera:ci .
       - name: Container runs read-only as its own user, as the Helm chart runs it
         run: |
-          docker run -d --name t --network host --read-only --tmpfs /tmp --user 10001:10001 \
+          docker run -d --name tessera-ro --network host --read-only --tmpfs /tmp --user 10001:10001 \
             -e NODE_ENV=production -e PORT=4710 -e PUBLIC_URL=http://localhost:4710 \
             -e DATABASE_URL=$DATABASE_URL -e SECRET_KEY=$SECRET_KEY tessera:ci
           for i in $(seq 1 30); do curl -fsS localhost:4710/api/health && break; sleep 1; done
           curl -fsS -o /dev/null localhost:4710/downloads/tessera-cli.tgz
           curl -fsS -H "Host: 10.0.0.7:4710" localhost:4710/api/health
-          docker logs t | tail -5
+          docker logs tessera-ro | tail -5
 
   helm:
     runs-on: ubuntu-latest
