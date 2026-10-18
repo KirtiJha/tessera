@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { DevicePrincipal } from "../auth/devices.js";
 import { config } from "../config.js";
 import { ingestPool, pool, withTx } from "../db/pool.js";
-import { notify } from "../notify/notifier.js";
+import { hasDelayedChannels, notify, resolveNotifications, type Notification } from "../notify/notifier.js";
 import { applicable, budgetStatuses, recordBreach } from "./budgets.js";
 import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
@@ -63,6 +63,11 @@ function sanitise(r: Report): void {
   for (const k of Object.keys(s.tags)) s.tags[k] = clean(s.tags[k] ?? "", 200);
 }
 
+/** One key per thing a session waits on: the open prompt's id, else the wait reason. */
+export function waitKeyFor(orgId: string, sessionId: string, what: string): string {
+  return `${orgId}:${sessionId}:${what}`;
+}
+
 export class Fleet {
   /** orgId → sessionId → record */
   private live = new Map<string, Map<string, SessionRecord>>();
@@ -77,7 +82,8 @@ export class Fleet {
   /** Last time each device's last_seen_at was written. */
   private deviceSeen = new Map<string, number>();
   private timers: NodeJS.Timeout[] = [];
-  private notifiedWaiting = new Set<string>();
+  /** Sessions waiting on a person, by wait key, with what to send and since when (for delayed channels). */
+  private waiting = new Map<string, { orgId: string; sessionId: string; since: number; n: Notification }>();
 
   constructor(
     private hub: StreamHub,
@@ -278,19 +284,26 @@ export class Fleet {
     const label = rec.name ?? rec.git?.repo ?? rec.cwd?.split("/").pop() ?? rec.id.slice(0, 8);
     const owner = rec.ownerName ?? "unknown";
     const waitingNow = rec.status === "waiting" && rec.waitReason !== "background" && rec.waitReason !== "idle";
-    const waitKey = `${orgId}:${rec.id}:${rec.openAsk?.id ?? rec.waitReason ?? ""}`;
-    if (waitingNow && !this.notifiedWaiting.has(waitKey)) {
-      this.notifiedWaiting.add(waitKey);
-      await notify(orgId, {
+    const waitKey = waitKeyFor(orgId, rec.id, rec.openAsk?.id ?? rec.waitReason ?? "");
+    if (waitingNow && !this.waiting.has(waitKey)) {
+      const n: Notification = {
         event: "session.waiting",
         dedupeKey: waitKey,
         title: `${label} is waiting on ${owner}`,
         text: rec.openAsk ? rec.openAsk.prompt.slice(0, 500) : `Reason: ${rec.waitReason ?? "input"}`,
         sessionId: rec.id,
-        fields: { Owner: owner, Model: rec.model ?? "—", Machine: rec.hostname ?? "—" },
-      }, this.log);
+        fields: { Owner: owner, Model: rec.model ?? "—", Machine: rec.hostname ?? "—", ...(rec.openAsk?.tool ? { Tool: rec.openAsk.tool } : {}) },
+        ...(rec.openAsk ? { ask: { id: rec.openAsk.id, kind: rec.openAsk.kind } } : {}),
+      };
+      this.waiting.set(waitKey, { orgId, sessionId: rec.id, since: Date.now(), n });
+      await notify(orgId, n, this.log, { waitedMs: 0 });
     }
-    if (!waitingNow) for (const k of [...this.notifiedWaiting]) if (k.startsWith(`${orgId}:${rec.id}:`)) this.notifiedWaiting.delete(k);
+    // Anything this session was waiting on that it no longer is: close it out in chat and paging tools.
+    for (const [k, w] of this.waiting) {
+      if (w.orgId !== orgId || w.sessionId !== rec.id || (waitingNow && k === waitKey)) continue;
+      this.waiting.delete(k);
+      await resolveNotifications(orgId, k, rec.status === "ended" ? "The session ended." : "Answered in the terminal, or the session moved on.", this.log);
+    }
 
     for (const e of fresh) {
       if (e.kind === "agent.fail") {
@@ -457,6 +470,12 @@ export class Fleet {
   }
 
   private remove(orgId: string, id: string): void {
+    for (const [k, w] of this.waiting) {
+      if (w.orgId === orgId && w.sessionId === id) {
+        this.waiting.delete(k);
+        void resolveNotifications(orgId, k, "The session left the wall.", this.log).catch(() => {});
+      }
+    }
     this.orgMap(orgId).delete(id);
     this.lastTokens.delete(`${orgId}:${id}`);
     this.agentSig.delete(`${orgId}:${id}`);
@@ -468,6 +487,12 @@ export class Fleet {
 
   private async sweep(): Promise<void> {
     const now = Date.now();
+    const delayed = new Map<string, boolean>();
+    for (const w of this.waiting.values()) {
+      let has = delayed.get(w.orgId);
+      if (has === undefined) delayed.set(w.orgId, (has = await hasDelayedChannels(w.orgId)));
+      if (has) await notify(w.orgId, w.n, this.log, { waitedMs: now - w.since });
+    }
     for (const [orgId, m] of this.live) {
       for (const rec of [...m.values()]) {
         const seen = Date.parse(rec.lastSeenAt);

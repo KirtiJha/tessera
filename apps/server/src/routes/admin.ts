@@ -10,7 +10,9 @@ import { config } from "../config.js";
 import { pool } from "../db/pool.js";
 import { budgetStatuses, invalidateBudgets } from "../fleet/budgets.js";
 import { invalidatePrices } from "../fleet/pricing.js";
-import { invalidateChannels, notify } from "../notify/notifier.js";
+import { invalidateChannels, NOTIFY_EVENTS, secretsOf, testChannel, type ChannelSecrets, type NotifyEvent } from "../notify/notifier.js";
+import { slackApi, slackManifest } from "../notify/slack.js";
+import { randomBytes } from "node:crypto";
 
 function admin(req: FastifyRequest) {
   const p = req.principal!;
@@ -234,31 +236,80 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   // ---- notification channels ---------------------------------------------------
   app.get("/channels", async (req) => {
     const p = admin(req);
-    const r = await pool.query("SELECT id, kind, name, events, enabled, created_at, last_sent_at, last_error FROM notification_channels WHERE org_id = $1 ORDER BY created_at", [p.orgId]);
-    return { channels: r.rows.map((c) => ({ id: c.id, kind: c.kind, name: c.name, events: c.events, enabled: c.enabled, createdAt: c.created_at, lastSentAt: c.last_sent_at, lastError: c.last_error })) };
+    const r = await pool.query("SELECT id, kind, name, events, enabled, delay_s, secret_enc, created_at, last_sent_at, last_error FROM notification_channels WHERE org_id = $1 ORDER BY created_at", [p.orgId]);
+    return {
+      channels: r.rows.map((c) => {
+        const s = secretsOf(c);
+        return {
+          id: c.id, kind: c.kind, name: c.name, events: c.events, enabled: c.enabled, delaySeconds: c.delay_s,
+          slackChannel: c.kind === "slack_app" ? (s.channel ?? null) : null,
+          signed: c.kind === "webhook" ? !!s.signingSecret : null,
+          createdAt: c.created_at, lastSentAt: c.last_sent_at, lastError: c.last_error,
+        };
+      }),
+      slack: { requestUrl: `${config.publicUrl}/api/integrations/slack/actions`, manifest: slackManifest() },
+    };
   });
 
-  const EventList = z.array(z.enum(["session.waiting", "agent.failed", "budget.breach", "context.blowout", "session.stale"]));
+  const EventList = z.array(z.enum(NOTIFY_EVENTS as [NotifyEvent, ...NotifyEvent[]])).max(NOTIFY_EVENTS.length);
+  // https only; plain http is accepted for loopback addresses outside production, for local receivers.
+  const https = z.string().url().max(1000).refine((u) => u.startsWith("https://") || (!config.isProd && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(u)), "must use https");
+  const Common = { name: z.string().trim().min(1).max(100), events: EventList.default(["session.waiting", "agent.failed", "budget.breach", "context.blowout"]), delaySeconds: z.number().int().min(0).max(86400).default(0) };
+  const NewChannel = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("slack_webhook"), url: https, ...Common }),
+    z.object({ kind: z.literal("teams_webhook"), url: https, ...Common }),
+    z.object({ kind: z.literal("webhook"), url: https, ...Common }),
+    z.object({
+      kind: z.literal("slack_app"),
+      botToken: z.string().trim().regex(/^xoxb-[A-Za-z0-9-]{10,}$/, "a bot token starts with xoxb-"),
+      signingSecret: z.string().trim().regex(/^[a-f0-9]{32}$/, "the signing secret is 32 hex characters (Basic Information → App Credentials)"),
+      channel: z.string().trim().regex(/^[CGD][A-Z0-9]{6,}$/, "use the channel ID (C…), from the channel's details in Slack"),
+      ...Common,
+    }),
+    z.object({ kind: z.literal("pagerduty"), routingKey: z.string().trim().regex(/^[A-Za-z0-9]{32}$/, "the integration key is 32 characters (Events API v2)"), ...Common }),
+  ]);
 
   app.post("/channels", async (req, reply) => {
     const p = admin(req);
-    const body = z.object({ kind: z.enum(["slack_webhook", "webhook"]), name: z.string().trim().min(1).max(100), url: z.string().url().max(1000), events: EventList.default(["session.waiting", "agent.failed", "budget.breach", "context.blowout"]) }).parse(req.body);
-    if (!body.url.startsWith("https://")) return reply.code(400).send({ error: "Webhook URLs must use https." });
-    const r = await pool.query<{ id: string }>("INSERT INTO notification_channels (org_id, kind, name, url_enc, events) VALUES ($1,$2,$3,$4,$5) RETURNING id", [p.orgId, body.kind, body.name, encrypt(body.url), JSON.stringify(body.events)]);
+    const body = NewChannel.parse(req.body);
+    let url: string | null = null;
+    let secrets: ChannelSecrets | null = null;
+    let shownOnce: string | null = null;
+    if (body.kind === "slack_app") {
+      try {
+        await slackApi(body.botToken, "auth.test", {});
+      } catch (e) {
+        return reply.code(400).send({ error: `Slack refused the bot token (${(e as Error).message}). Check it is the Bot User OAuth Token of an installed app.` });
+      }
+      secrets = { botToken: body.botToken, signingSecret: body.signingSecret, channel: body.channel };
+    } else if (body.kind === "pagerduty") {
+      secrets = { routingKey: body.routingKey };
+    } else {
+      url = body.url;
+      if (body.kind === "webhook") {
+        shownOnce = randomBytes(24).toString("base64url");
+        secrets = { signingSecret: shownOnce };
+      }
+    }
+    const r = await pool.query<{ id: string }>(
+      "INSERT INTO notification_channels (org_id, kind, name, url_enc, secret_enc, events, delay_s) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+      [p.orgId, body.kind, body.name, url ? encrypt(url) : null, secrets ? encrypt(JSON.stringify(secrets)) : null, JSON.stringify(body.events), body.delaySeconds],
+    );
     invalidateChannels(p.orgId);
-    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "channel.create", targetType: "channel", targetId: r.rows[0]!.id, detail: { kind: body.kind, name: body.name, events: body.events }, ip: req.ip });
-    return { ok: true, id: r.rows[0]!.id };
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "channel.create", targetType: "channel", targetId: r.rows[0]!.id, detail: { kind: body.kind, name: body.name, events: body.events, delaySeconds: body.delaySeconds }, ip: req.ip });
+    return { ok: true, id: r.rows[0]!.id, signingSecret: shownOnce };
   });
 
   app.patch("/channels/:id", async (req) => {
     const p = admin(req);
     const { id } = req.params as { id: string };
-    const body = z.object({ enabled: z.boolean().optional(), events: EventList.optional(), name: z.string().trim().min(1).max(100).optional() }).parse(req.body);
+    const body = z.object({ enabled: z.boolean().optional(), events: EventList.optional(), name: z.string().trim().min(1).max(100).optional(), delaySeconds: z.number().int().min(0).max(86400).optional() }).parse(req.body);
     const sets: string[] = [];
     const params: unknown[] = [id, p.orgId];
     if (body.enabled !== undefined) sets.push(`enabled = $${params.push(body.enabled)}`);
     if (body.events !== undefined) sets.push(`events = $${params.push(JSON.stringify(body.events))}`);
     if (body.name !== undefined) sets.push(`name = $${params.push(body.name)}`);
+    if (body.delaySeconds !== undefined) sets.push(`delay_s = $${params.push(body.delaySeconds)}`);
     if (sets.length) await pool.query(`UPDATE notification_channels SET ${sets.join(", ")} WHERE id = $1 AND org_id = $2`, params);
     invalidateChannels(p.orgId);
     await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "channel.update", targetType: "channel", targetId: id, detail: body, ip: req.ip });
@@ -277,10 +328,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.post("/channels/:id/test", async (req) => {
     const p = admin(req);
     const { id } = req.params as { id: string };
-    await pool.query("DELETE FROM notification_log WHERE channel_id = $1 AND dedupe_key LIKE 'test:%'", [id]);
-    await notify(p.orgId, { event: "session.waiting", dedupeKey: `test:${Date.now()}`, title: "Tessera test notification", text: `Sent by ${p.name}. If you can read this, the channel works.` }, req.log);
-    const r = await pool.query<{ last_error: string | null }>("SELECT last_error FROM notification_channels WHERE id = $1", [id]);
-    return { ok: true, error: r.rows[0]?.last_error ?? null };
+    return { ok: true, error: await testChannel(p.orgId, id, p.name) };
   });
 
   // ---- audit ------------------------------------------------------------------

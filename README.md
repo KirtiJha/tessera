@@ -84,6 +84,19 @@ pnpm --filter @tessera/dev-idp start
 
 It signs in whoever you type, so it is for development only.
 
+## Notifications and answering from Slack
+
+Under **Notifications**, an admin adds channels for the events that matter: a session waiting on someone, an agent failing, a context window overflowing, a budget limit, a policy denial, a session going silent.
+
+| Channel | What it does |
+| --- | --- |
+| Slack app | Posts with **Allow**/**Deny** on permission prompts and **Approve plan**/**Send back…** on plans. The answer is made as the person who pressed, matched by their Slack email, under the same rules as the console, and audited. The message updates to say who answered. |
+| Slack webhook, Microsoft Teams | A message or adaptive card with a link to the session. |
+| PagerDuty | Opens an incident (Events API v2) and resolves it when the session moves on. |
+| Webhook | JSON to any https endpoint, signed: `X-Tessera-Signature: t=<unix>,v1=<HMAC-SHA256 of "<t>.<body>">`. |
+
+Any channel can wait before it hears about a waiting session (2, 5 or 15 minutes, an hour), which makes escalation channels a one-line setup. For the Slack app, the page gives you a manifest to paste into api.slack.com; set the interactivity URL to `https://<your Tessera>/api/integrations/slack/actions`.
+
 ## Roles
 
 | Role | Can |

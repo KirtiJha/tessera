@@ -134,3 +134,9 @@ body {
 .tile-enter {
   animation: tessera-tile-enter 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+
+/* Native checkboxes and radios in the brand colour. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-teal-400);
+}

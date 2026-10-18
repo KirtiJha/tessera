@@ -72,8 +72,8 @@ export function Modal({ open, onClose, title, children, width = 520 }: { open: b
   return (
     <AnimatePresence>
       {open ? (
-        <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-          <motion.div role="dialog" aria-modal="true" aria-label={title} className="w-full rounded-2xl border border-line-2 bg-slate-1 shadow-2xl" style={{ maxWidth: width }} initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 8, scale: 0.98 }} transition={{ duration: 0.2 }}>
+        <motion.div className="fixed inset-0 z-50 flex overflow-y-auto bg-black/60 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+          <motion.div role="dialog" aria-modal="true" aria-label={title} className="m-auto w-full rounded-2xl border border-line-2 bg-slate-1 shadow-2xl" style={{ maxWidth: width }} initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 8, scale: 0.98 }} transition={{ duration: 0.2 }}>
             <header className="flex items-center justify-between border-b border-line px-5 py-4">
               <h2 className="text-[16px] font-semibold">{title}</h2>
               <button onClick={onClose} className="rounded-md p-1 text-fog hover:bg-slate-2 hover:text-snow" aria-label="Close">

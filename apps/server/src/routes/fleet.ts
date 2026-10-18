@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { audit } from "../audit.js";
 import { canActOn } from "../auth/rbac.js";
+import { answerAsk } from "../fleet/actions.js";
 import { checkMutation, requireUser } from "../auth/session.js";
 import { pool } from "../db/pool.js";
 import type { Fleet } from "../fleet/fleet.js";
@@ -169,9 +170,8 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     return { p, rec };
   }
 
-  app.post("/sessions/:id/answer", async (req, reply) => {
+  app.post("/sessions/:id/answer", async (req) => {
     const { id } = req.params as { id: string };
-    const { p, rec } = await actable(req, id);
     const body = z
       .object({
         askId: z.string().max(128),
@@ -180,11 +180,8 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
         option: z.string().max(300).optional(),
       })
       .parse(req.body);
-    if (!rec.openAsk || rec.openAsk.id !== body.askId) return reply.code(409).send({ error: "That prompt is no longer open." });
-    const payload = { decision: body.decision, text: body.text ?? null, option: body.option ?? null, by: p.name };
-    const deliveryId = await fleet.queueDelivery(p.orgId, id, "answer", body.askId, payload, p.userId);
-    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: `session.answer.${body.decision}`, targetType: "session", targetId: id, detail: { askId: body.askId, kind: rec.openAsk.kind, deliveryId }, ip: req.ip });
-    return { ok: true, deliveryId };
+    const r = await answerAsk(fleet, req.principal!, id, body, "console", { ip: req.ip, log: req.log });
+    return { ok: true, deliveryId: r.deliveryId };
   });
 
   app.post("/sessions/:id/message", async (req) => {
