@@ -28,7 +28,7 @@ export function sha256(s: string): string {
 }
 
 /** Random opaque token with a readable prefix: tsr_ devices, tss_ browser sessions, tse_ enrolment codes, tsi_ invites, tsk_ API keys. */
-export function newToken(prefix: "tsr" | "tss" | "tse" | "tsi" | "tsk"): string {
+export function newToken(prefix: "tsr" | "tss" | "tse" | "tsi" | "tsk" | "tsc"): string {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
 }
 

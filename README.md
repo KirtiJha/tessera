@@ -80,6 +80,10 @@ Owners connect an OpenID Connect provider under **Single sign-on**: Okta, Micros
 
 Tessera uses the authorization code flow with PKCE and validates ID tokens against the provider's published keys. A provider can only sign in members of its own organisation, and once someone has signed in through SSO, only that provider identity signs them in again. Public email domains cannot be claimed.
 
+Each email domain must be **verified** with a DNS TXT record (`_tessera-verify.<domain>`) before sign-ins for it go to your provider or accounts are created for it; only one organisation can verify a domain.
+
+**SCIM 2.0 provisioning.** Generate a SCIM token under Single sign-on and point Okta or Entra ID at `https://<your Tessera>/scim/v2`. The provider creates people, keeps names in step, and deactivates them when they leave (their browser sessions end at once; devices and API keys stop with them). Groups become teams. Roles stay a Tessera decision, and owners cannot be deactivated through SCIM.
+
 To try it locally without an Okta or Entra account, run the development provider and use issuer `http://127.0.0.1:4800`, client ID `tessera-dev`, client secret `dev-secret`:
 
 ```sh

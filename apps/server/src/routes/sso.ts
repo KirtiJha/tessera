@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { audit } from "../audit.js";
-import { decrypt, encrypt } from "../auth/crypto.js";
+import { decrypt, encrypt, newToken, sha256 } from "../auth/crypto.js";
+import { txt } from "../auth/dnstxt.js";
+import { forgetScimTokens } from "./scim.js";
 import { authorizationUrl, discover, domainOf, finish, newFlow, OidcError, PUBLIC_DOMAINS, safeReturnTo, type FlowState } from "../auth/oidc.js";
 import { checkMutation, createUserSession, requireUser, setSessionCookie } from "../auth/session.js";
 import { config } from "../config.js";
@@ -31,7 +33,7 @@ async function ssoForOrg(orgId: string): Promise<SsoRow | null> {
 
 async function orgForEmail(email: string): Promise<{ orgId: string; orgName: string } | null> {
   const r = await pool.query<{ org_id: string; name: string }>(
-    "SELECT d.org_id, o.name FROM sso_domains d JOIN orgs o ON o.id = d.org_id JOIN org_sso s ON s.org_id = d.org_id WHERE d.domain = $1 AND s.enabled",
+    "SELECT d.org_id, o.name FROM sso_domains d JOIN orgs o ON o.id = d.org_id JOIN org_sso s ON s.org_id = d.org_id WHERE d.domain = $1 AND d.verified_at IS NOT NULL AND s.enabled",
     [domainOf(email)],
   );
   return r.rows[0] ? { orgId: r.rows[0].org_id, orgName: r.rows[0].name } : null;
@@ -173,7 +175,7 @@ async function resolveUser(orgId: string, s: SsoRow, id: { issuer: string; subje
     }
     // New person: create them only when the organisation allows it and owns the email domain.
     if (!s.jit_provisioning) return { error: "You do not have a Tessera account yet. Ask an admin to invite you." };
-    const owns = await c.query("SELECT 1 FROM sso_domains WHERE domain = $1 AND org_id = $2", [domainOf(id.email), orgId]);
+    const owns = await c.query("SELECT 1 FROM sso_domains WHERE domain = $1 AND org_id = $2 AND verified_at IS NOT NULL", [domainOf(id.email), orgId]);
     if (!owns.rowCount) return { error: "Your email domain is not one this organisation signs in with." };
     const name = id.name ?? id.email.split("@")[0]!;
     const r = await c.query<{ id: string }>(
@@ -207,14 +209,22 @@ export async function ssoAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get("/", async (req) => {
     const p = req.principal!;
     const s = await ssoForOrg(p.orgId);
-    const d = await pool.query<{ domain: string }>("SELECT domain FROM sso_domains WHERE org_id = $1 ORDER BY domain", [p.orgId]);
+    const d = await pool.query<{ domain: string; verification_token: string; verified_at: string | null }>("SELECT domain, verification_token, verified_at FROM sso_domains WHERE org_id = $1 ORDER BY domain", [p.orgId]);
+    const scim = await pool.query<{ prefix: string; created_at: string; last_used_at: string | null }>("SELECT prefix, created_at, last_used_at FROM scim_tokens WHERE org_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1", [p.orgId]);
     return {
       redirectUri: redirectUri(),
       canEdit: p.role === "owner",
       config: s
         ? { enabled: s.enabled, issuer: s.issuer, clientId: s.client_id, hasSecret: !!s.client_secret_enc, jitProvisioning: s.jit_provisioning, defaultRole: s.default_role, enforce: s.enforce }
         : null,
-      domains: d.rows.map((x) => x.domain),
+      domains: d.rows.map((x) => ({
+        domain: x.domain,
+        verified: !!x.verified_at,
+        verifiedAt: x.verified_at,
+        // Only owners see the token: it is what proves control of the domain.
+        record: p.role === "owner" ? { name: `_tessera-verify.${x.domain}`, type: "TXT", value: `tessera-verification=${x.verification_token}` } : null,
+      })),
+      scim: { baseUrl: `${config.publicUrl}/scim/v2`, token: scim.rows[0] ? { prefix: scim.rows[0].prefix, createdAt: scim.rows[0].created_at, lastUsedAt: scim.rows[0].last_used_at } : null },
     };
   });
 
@@ -258,8 +268,8 @@ export async function ssoAdminRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: (e as Error).message });
       }
     }
-    const taken = await pool.query<{ domain: string }>("SELECT domain FROM sso_domains WHERE domain = ANY($1) AND org_id <> $2", [domains, p.orgId]);
-    if (taken.rowCount) return reply.code(409).send({ error: `${taken.rows.map((r) => r.domain).join(", ")} already belongs to another organisation.` });
+    const taken = await pool.query<{ domain: string }>("SELECT domain FROM sso_domains WHERE domain = ANY($1) AND org_id <> $2 AND verified_at IS NOT NULL", [domains, p.orgId]);
+    if (taken.rowCount) return reply.code(409).send({ error: `${taken.rows.map((r) => r.domain).join(", ")} is verified by another organisation.` });
 
     const secretEnc = body.clientSecret ? encrypt(body.clientSecret) : existing!.client_secret_enc;
     await withTx(async (c) => {
@@ -271,8 +281,9 @@ export async function ssoAdminRoutes(app: FastifyInstance): Promise<void> {
            enforce = EXCLUDED.enforce, updated_at = now(), updated_by = EXCLUDED.updated_by`,
         [p.orgId, body.enabled, issuer, body.clientId, secretEnc, body.jitProvisioning, body.defaultRole, body.enforce, p.userId],
       );
-      await c.query("DELETE FROM sso_domains WHERE org_id = $1", [p.orgId]);
-      for (const d of domains) await c.query("INSERT INTO sso_domains (domain, org_id) VALUES ($1, $2)", [d, p.orgId]);
+      // Keep the verification of domains that stay; new ones start unverified with a fresh token.
+      await c.query("DELETE FROM sso_domains WHERE org_id = $1 AND NOT (domain = ANY($2))", [p.orgId, domains]);
+      for (const d of domains) await c.query("INSERT INTO sso_domains (domain, org_id, verification_token) VALUES ($1, $2, $3) ON CONFLICT (org_id, domain) DO NOTHING", [d, p.orgId, randomBytes(16).toString("hex")]);
       await audit({
         orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "sso.update", targetType: "org", targetId: p.orgId,
         detail: { enabled: body.enabled, issuer, clientId: body.clientId, secretChanged: !!body.clientSecret, jitProvisioning: body.jitProvisioning, defaultRole: body.defaultRole, enforce: body.enforce, domains },
@@ -289,6 +300,56 @@ export async function ssoAdminRoutes(app: FastifyInstance): Promise<void> {
       await c.query("DELETE FROM sso_domains WHERE org_id = $1", [p.orgId]);
       await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "sso.delete", targetType: "org", targetId: p.orgId, ip: req.ip }, c);
     });
+    return { ok: true };
+  });
+
+  /** Check a domain's TXT record and mark it verified when it carries this organisation's token. */
+  app.post("/domains/:domain/verify", async (req, reply) => {
+    const p = owner(req);
+    const domain = Domain.parse((req.params as { domain: string }).domain);
+    const r = await pool.query<{ verification_token: string; verified_at: string | null }>("SELECT verification_token, verified_at FROM sso_domains WHERE org_id = $1 AND domain = $2", [p.orgId, domain]);
+    const row = r.rows[0];
+    if (!row) return reply.code(404).send({ error: "That domain is not in your settings. Save it first." });
+    if (row.verified_at) return { ok: true, verified: true };
+    const expected = `tessera-verification=${row.verification_token}`;
+    let found: string[] = [];
+    try {
+      found = (await txt.resolve(`_tessera-verify.${domain}`)).map((chunks) => chunks.join(""));
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code !== "ENOTFOUND" && code !== "ENODATA") return reply.code(502).send({ error: `DNS lookup failed (${code ?? (e as Error).message}). Try again in a minute.` });
+    }
+    if (!found.includes(expected)) {
+      return reply.code(400).send({ error: found.length ? `_tessera-verify.${domain} has TXT records, but not this organisation's. It may take a few minutes for a new record to be seen.` : `No TXT record at _tessera-verify.${domain} yet. DNS changes can take a few minutes.` });
+    }
+    try {
+      await pool.query("UPDATE sso_domains SET verified_at = now() WHERE org_id = $1 AND domain = $2", [p.orgId, domain]);
+    } catch (e) {
+      if ((e as { code?: string }).code === "23505") return reply.code(409).send({ error: `${domain} is already verified by another organisation.` });
+      throw e;
+    }
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "sso.domain.verify", targetType: "domain", targetId: domain, ip: req.ip });
+    return { ok: true, verified: true };
+  });
+
+  /** A new SCIM token replaces the previous one; it is shown once. */
+  app.post("/scim/token", async (req) => {
+    const p = owner(req);
+    const token = newToken("tsc");
+    await withTx(async (c) => {
+      await c.query("UPDATE scim_tokens SET revoked_at = now() WHERE org_id = $1 AND revoked_at IS NULL", [p.orgId]);
+      await c.query("INSERT INTO scim_tokens (org_id, token_hash, prefix, created_by) VALUES ($1,$2,$3,$4)", [p.orgId, sha256(token), token.slice(0, 12), p.userId]);
+      await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "scim.token.create", targetType: "org", targetId: p.orgId, ip: req.ip }, c);
+    });
+    forgetScimTokens();
+    return { ok: true, token, baseUrl: `${config.publicUrl}/scim/v2` };
+  });
+
+  app.delete("/scim/token", async (req) => {
+    const p = owner(req);
+    await pool.query("UPDATE scim_tokens SET revoked_at = now() WHERE org_id = $1 AND revoked_at IS NULL", [p.orgId]);
+    forgetScimTokens();
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "scim.token.revoke", targetType: "org", targetId: p.orgId, ip: req.ip });
     return { ok: true };
   });
 
