@@ -67,7 +67,7 @@ function Row({ label, a, b, fmt, lowerIsBetter = true }: { label: string; a: num
     </div>
   );
   return (
-    <div className="grid grid-cols-[140px_1fr_1fr] items-center gap-5 border-b border-line py-3 last:border-b-0">
+    <div className="grid grid-cols-[84px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)] sm:gap-5 border-b border-line py-3 last:border-b-0">
       <div className="text-[12.5px] text-fog">{label}</div>
       {cell(a, "a", "var(--color-teal-400)")}
       {cell(b, "b", "var(--color-violet-400)")}
@@ -121,7 +121,7 @@ export function Compare() {
     return [...all.entries()].sort((x, y) => y[1] - x[1]).map(([k]) => k);
   }, [fa, fb]);
 
-  if (!a) return <div className="mx-auto max-w-2xl p-5"><Empty title="Pick a session to compare" body="Open a session and choose Compare, or pick two from History." /></div>;
+  if (!a) return <div className="mx-auto max-w-2xl p-3 sm:p-5"><Empty title="Pick a session to compare" body="Open a session and choose Compare, or pick two from History." /></div>;
   if (err) return <div className="p-6 text-[14px] text-rose-400">{err}</div>;
 
   const head = (d: Detail | null, tone: string, side: "a" | "b") => {
@@ -129,22 +129,22 @@ export function Compare() {
     const s = d.session;
     const k = KIND[sessionKind(s)];
     return (
-      <Link to={`/app/sessions/${encodeURIComponent(s.id)}`} className="block rounded-xl border border-line bg-slate-1 p-4 hover:border-line-2" style={{ borderTopColor: tone, borderTopWidth: 3 }}>
-        <div className="flex items-center gap-2"><StateShape kind={sessionKind(s)} size={11} /><span className="truncate text-[16px] font-semibold text-snow">{sessionLabel(s)}</span></div>
-        <div className="mt-1 text-[12.5px] text-fog">{s.ownerName ?? "—"} · {modelShort(s.model)} · {fmtDate(s.startedAt)}</div>
-        <div className="mt-1 text-[12.5px]" style={{ color: k.color }}>{k.label}{s.endReason ? ` · ${s.endReason}` : ""}{s.git?.branch ? <span className="text-fog"> · {s.git.branch}</span> : null}</div>
+      <Link to={`/app/sessions/${encodeURIComponent(s.id)}`} className="block min-w-0 rounded-xl border border-line bg-slate-1 p-3 hover:border-line-2 sm:p-4" style={{ borderTopColor: tone, borderTopWidth: 3 }}>
+        <div className="flex items-center gap-2"><StateShape kind={sessionKind(s)} size={11} /><span className="min-w-0 truncate text-[14px] font-semibold text-snow sm:text-[16px]">{sessionLabel(s)}</span></div>
+        <div className="mt-1 break-words text-[12.5px] text-fog">{s.ownerName ?? "—"} · {modelShort(s.model)} · {fmtDate(s.startedAt)}</div>
+        <div className="mt-1 break-words text-[12.5px]" style={{ color: k.color }}>{k.label}{s.endReason ? ` · ${s.endReason}` : ""}{s.git?.branch ? <span className="text-fog"> · {s.git.branch}</span> : null}</div>
       </Link>
     );
   };
 
   return (
-    <div className="mx-auto max-w-5xl p-5">
+    <div className="mx-auto max-w-5xl p-3 sm:p-5">
       <Link to={`/app/sessions/${encodeURIComponent(a)}`} className="inline-flex items-center gap-1.5 text-[13px] text-fog hover:text-snow"><ArrowLeft size={14} /> Back to the session</Link>
       <div className="mt-3 flex items-end justify-between gap-3">
         <h1 className="font-display text-[26px] font-semibold tracking-tight">Compare sessions</h1>
         {b ? <button onClick={() => setParams({ a: b, b: a })} className="inline-flex items-center gap-1.5 text-[13px] text-fog hover:text-snow"><ArrowLeftRight size={14} /> Swap</button> : null}
       </div>
-      <div className="mt-4 grid grid-cols-[140px_1fr_1fr] items-start gap-5">
+      <div className="mt-4 grid grid-cols-[84px_minmax(0,1fr)_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)] sm:gap-5">
         <div />
         {head(da, "var(--color-teal-400)", "a")}
         <div>

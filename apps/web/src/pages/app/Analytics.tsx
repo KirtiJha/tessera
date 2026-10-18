@@ -123,7 +123,7 @@ export function Analytics() {
   const rest = data ? data.groups.slice(12).reduce((n, g) => n + g.costUsd, 0) : 0;
 
   return (
-    <div className="mx-auto max-w-6xl p-5">
+    <div className="mx-auto max-w-6xl p-3 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">Analytics</h1>

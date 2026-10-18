@@ -67,7 +67,7 @@ export function ApiKeys() {
   const revoked = keys?.filter((k) => k.revokedAt) ?? [];
 
   return (
-    <div className="mx-auto max-w-4xl p-5">
+    <div className="mx-auto max-w-4xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">API keys</h1>
       <p className="mt-1 text-[14px] text-fog">For scripts, CI and the <span className="font-mono text-[13px]">tessera</span> command line. A key acts as the person who made it, with their current role, limited to the scopes you pick. {isAdmin ? "As an admin you see, and can revoke, every key in the organisation." : ""}</p>
 

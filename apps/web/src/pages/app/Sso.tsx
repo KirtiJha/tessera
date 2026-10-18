@@ -113,7 +113,7 @@ export function Sso() {
   const ro = !s.canEdit;
 
   return (
-    <div className="mx-auto max-w-3xl p-5">
+    <div className="mx-auto max-w-3xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Single sign-on</h1>
       <p className="mt-1 text-[14px] text-fog">People sign in through your identity provider with OpenID Connect. Works with Okta, Microsoft Entra ID, Google Workspace and any OIDC provider.</p>
       {ro ? <p className="mt-3 rounded-lg border border-line-2 bg-slate-2 px-3 py-2 text-[13px] text-mist">Only an owner can change these settings.</p> : null}
