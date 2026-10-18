@@ -1,0 +1,25 @@
+{
+  "name": "@tessera/reporter-claude",
+  "version": "0.1.0",
+  "description": "Tessera reporter for Claude Code: reports every session to your Tessera console through Claude Code hooks.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tessera-reporter": "./bin/tessera-reporter.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "@tessera/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

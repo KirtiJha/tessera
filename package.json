@@ -1,0 +1,23 @@
+{
+  "name": "tessera",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tessera — the enterprise control plane for fleets of AI coding agents.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/* dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "db:migrate": "pnpm --filter @tessera/server db:migrate",
+    "start": "pnpm --filter @tessera/server start"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

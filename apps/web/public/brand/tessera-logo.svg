@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 160" width="520" height="160" role="img" aria-label="Tessera">
+  <title>Tessera</title>
+  <!-- Mark: nine tiles, five form a T. Centre tile is the status tile. -->
+  <g id="mark" transform="translate(24,24)">
+    <rect x="0"  y="0"  width="34" height="34" rx="7" fill="#0F766E"/>
+    <rect x="39" y="0"  width="34" height="34" rx="7" fill="#0F766E"/>
+    <rect x="78" y="0"  width="34" height="34" rx="7" fill="#0F766E"/>
+    <rect x="0"  y="39" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+    <rect x="39" y="39" width="34" height="34" rx="7" fill="#0F766E"/>
+    <rect x="78" y="39" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+    <rect x="0"  y="78" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+    <rect x="39" y="78" width="34" height="34" rx="7" fill="#0F766E"/>
+    <rect x="78" y="78" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="168" y="100" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="64" font-weight="600" letter-spacing="-2" fill="#111827">tessera</text>
+  <text x="172" y="130" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#6B7280">Every agent session, one mosaic.</text>
+</svg>

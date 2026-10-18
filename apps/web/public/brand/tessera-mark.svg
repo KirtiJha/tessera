@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Tessera mark">
+  <title>Tessera mark</title>
+  <!-- Change the centre tile's fill to #D97706 (amber) for "a session waits on you", #15803D (green) for all-clear. -->
+  <rect x="8"  y="8"  width="34" height="34" rx="7" fill="currentColor" style="color:#0F766E"/>
+  <rect x="47" y="8"  width="34" height="34" rx="7" fill="#0F766E"/>
+  <rect x="86" y="8"  width="34" height="34" rx="7" fill="#0F766E"/>
+  <rect x="8"  y="47" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+  <rect id="status-tile" x="47" y="47" width="34" height="34" rx="7" fill="#0F766E"/>
+  <rect x="86" y="47" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+  <rect x="8"  y="86" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+  <rect x="47" y="86" width="34" height="34" rx="7" fill="#0F766E"/>
+  <rect x="86" y="86" width="34" height="34" rx="7" fill="none" stroke="#0F766E" stroke-width="1.75"/>
+</svg>
