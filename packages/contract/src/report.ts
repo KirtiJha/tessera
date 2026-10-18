@@ -126,6 +126,55 @@ export type AgentReport = z.infer<typeof AgentReport>;
 export const WaitReason = z.enum(["question", "plan", "permission", "idle", "background"]);
 export type WaitReason = z.infer<typeof WaitReason>;
 
+/** One edit the agent wants to make, as it would appear in a diff. */
+export const EditPreview = z.object({
+  path: short(400),
+  before: short(6000),
+  after: short(6000),
+  replaceAll: z.boolean().default(false),
+});
+export type EditPreview = z.infer<typeof EditPreview>;
+
+export const QuestionOption = z.object({ label: short(300), description: short(500).nullable().default(null) });
+export const Question = z.object({
+  question: short(1000),
+  header: short(60).nullable().default(null),
+  options: z.array(QuestionOption).max(20).default([]),
+  multiSelect: z.boolean().default(false),
+});
+export type Question = z.infer<typeof Question>;
+
+/** A permission rule the runtime could remember, so this call is not asked about again: "Bash(pnpm test:*)". */
+export const SuggestedRule = z.object({ tool: short(120), content: short(300).nullable().default(null) });
+export type SuggestedRule = z.infer<typeof SuggestedRule>;
+
+/**
+ * Everything the reporter can show about what is being asked, so the person
+ * deciding sees the actual command, the actual change, and what led up to it.
+ * Redacted on the machine before it is sent; the server scrubs it again.
+ */
+export const AskDetail = z.object({
+  /** The whole command, for Bash. */
+  command: short(4000).nullable().default(null),
+  /** The runtime's one-line description of the call, when it gives one. */
+  description: short(500).nullable().default(null),
+  /** File edits with before and after text. */
+  edits: z.array(EditPreview).max(20).default([]),
+  /** A file about to be written whole: the first part of its content. */
+  write: z.object({ path: short(400), excerpt: short(6000), lines: z.number().int().nonnegative(), bytes: z.number().int().nonnegative() }).nullable().default(null),
+  url: short(1000).nullable().default(null),
+  paths: z.array(short(400)).max(20).default([]),
+  /** The agent's own last words before asking: its account of why. */
+  rationale: short(1500).nullable().default(null),
+  /** The Tessera policy rule that turned this call into a prompt, if one did. */
+  forcedBy: short(400).nullable().default(null),
+  /** Rules the runtime suggests for allowing this next time, in order. */
+  suggestedRules: z.array(SuggestedRule).max(5).default([]),
+  /** Multiple-choice questions, for kind "question". */
+  questions: z.array(Question).max(4).default([]),
+});
+export type AskDetail = z.infer<typeof AskDetail>;
+
 export const OpenAsk = z.object({
   id: id,
   kind: z.enum(["question", "plan", "permission"]),
@@ -133,8 +182,23 @@ export const OpenAsk = z.object({
   tool: short(120).nullable().default(null),
   prompt: short(4000),
   options: z.array(short(300)).max(20).default([]),
+  detail: AskDetail.nullable().default(null),
 });
 export type OpenAsk = z.infer<typeof OpenAsk>;
+
+/** One tool call, as it runs: what the live wall shows as "now doing" and what an approver sees as "what led here". */
+export const Action = z.object({
+  id: id,
+  ts: z.string().datetime(),
+  tool: short(120),
+  summary: short(300),
+  agentId: id.nullable().default(null),
+  status: z.enum(["running", "ok", "failed", "denied"]),
+  endedAt: z.string().datetime().nullable().default(null),
+  durationMs: z.number().int().nonnegative().nullable().default(null),
+  error: short(300).nullable().default(null),
+});
+export type Action = z.infer<typeof Action>;
 
 export const SessionReport = z.object({
   id: id,
@@ -160,6 +224,8 @@ export const SessionReport = z.object({
   openAsk: OpenAsk.nullable().default(null),
   tags: z.record(short(60), short(200)).default({}),
   continuedFrom: id.nullable().default(null),
+  /** The most recent tool calls, newest last. */
+  activity: z.array(Action).max(40).default([]),
 });
 export type SessionReport = z.infer<typeof SessionReport>;
 

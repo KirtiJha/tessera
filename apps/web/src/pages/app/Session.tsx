@@ -1,8 +1,9 @@
-import type { AgentView, EventView, SessionView } from "@tessera/contract";
+import { deriveRule, riskForAsk, ruleText, type AgentView, type EventView, type SessionView } from "@tessera/contract";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Hand, OctagonX, Pause, Play, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ActionList, AllowMenu, AskSubstance, RiskChips } from "../../components/Approval";
 import { AgentStrip, ContextBar, KIND, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
@@ -78,13 +79,22 @@ function AgentDetail({ a }: { a: AgentView }) {
   );
 }
 
-function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDone: () => void }) {
+function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; onDone: () => void; now: number }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [message, setMessage] = useState("");
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
   const ask = s.openAsk;
   const kind = sessionKind(s);
+  const detail = ask?.detail ?? null;
+  const risk = useMemo(() => (ask ? riskForAsk(ask.tool, detail, s.cwd) : []), [ask, detail, s.cwd]);
+  const rule = useMemo(() => (ask && ask.kind === "permission" ? deriveRule(ask.tool ?? "tool", detail) : null), [ask, detail]);
+  const questions = detail?.questions ?? [];
+  const multi = questions.length > 1 || (questions.length === 1 && questions[0]!.multiSelect);
+  const toggle = (q: string, label: string, single: boolean) =>
+    setPicked((p) => ({ ...p, [q]: single ? [label] : p[q]?.includes(label) ? (p[q] ?? []).filter((x) => x !== label) : [...(p[q] ?? []), label] }));
+  const answersReady = questions.length > 0 && questions.every((q) => (picked[q.question]?.length ?? 0) > 0);
   const [stopOpen, setStopOpen] = useState(false);
   const [stopReason, setStopReason] = useState("");
   const [handOpen, setHandOpen] = useState(false);
@@ -107,7 +117,7 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
     }
   };
   const answer = (decision: string, extra: Record<string, unknown> = {}) =>
-    act(decision, () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/answer`, { askId: ask!.id, decision, ...extra }), decision === "deny" || decision === "reject" ? "Sent. The session will see it on its next check." : "Sent. The session will continue in a moment.");
+    act(decision, () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/answer`, { askId: ask!.id, decision, ...extra }), decision === "deny" || decision === "reject" ? "Sent. The session will see it on its next check." : extra.scope === "session" ? `Sent. ${ruleText(rule!)} is allowed until the session ends.` : "Sent. The session will continue in a moment.");
 
   if (!canAct) return <p className="text-[13px] text-fog">Only this session's owner, someone it was handed to, an approver on their team, or an admin can act on it.</p>;
   if (kind === "done") return <p className="text-[13px] text-fog">This session has ended.</p>;
@@ -117,17 +127,56 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
       <AnimatePresence mode="wait">
         {ask ? (
           <motion.div key={ask.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-3.5">
-            <div className="flex items-center gap-2 text-[12px] font-medium text-amber-400"><StateShape kind="waiting" size={10} /> {{ question: "Question", plan: "Plan approval", permission: "Permission request" }[ask.kind]} · {ago(ask.createdAt)}</div>
-            {ask.tool ? <div className="mt-1.5 font-mono text-[12.5px] text-snow">{ask.tool}</div> : null}
-            <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-snow">{ask.prompt}</p>
-            {ask.kind === "question" ? (
-              <div className="mt-3 space-y-2">
-                {ask.options.map((o) => (
-                  <Button key={o} size="sm" className="mr-2" loading={busy === o} onClick={() => answer("answer", { option: o })}>{o}</Button>
-                ))}
-                <Textarea rows={2} placeholder="Or type an answer…" value={text} onChange={(e) => setText(e.target.value)} />
-                <Button size="sm" variant="primary" disabled={!text.trim()} loading={busy === "answer"} onClick={() => answer("answer", { text })}>Send answer</Button>
+            <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium text-amber-400"><StateShape kind="waiting" size={10} /> {{ question: "Question", plan: "Plan approval", permission: "Permission request" }[ask.kind]} · {ago(ask.createdAt, now)}{ask.tool && !detail?.command ? <span className="font-mono text-snow">· {ask.tool}</span> : null}</div>
+            {risk.length ? <div className="mt-2"><RiskChips flags={risk} /></div> : null}
+            {detail && ask.kind === "permission" && (detail.command || detail.edits.length || detail.write || detail.url || detail.paths.length) ? (
+              <div className="mt-2.5"><AskSubstance detail={detail} tool={ask.tool} /></div>
+            ) : ask.kind !== "question" || !questions.length ? (
+              <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-snow">{ask.prompt}</p>
+            ) : null}
+            {detail?.rationale ? (
+              <div className="mt-2.5 border-l-2 border-line-2 pl-3 text-[12.5px] leading-relaxed text-mist">
+                <span className="text-fog">The agent says: </span>{detail.rationale}
               </div>
+            ) : null}
+            {detail?.forcedBy ? <div className="mt-2 text-[12px] text-amber-400/90">Asked because of policy: {detail.forcedBy}</div> : null}
+            {ask.kind === "question" ? (
+              questions.length ? (
+                <div className="mt-3 space-y-3">
+                  {questions.map((q) => (
+                    <div key={q.question}>
+                      {questions.length > 1 || q.header ? <div className="text-[11.5px] font-medium uppercase tracking-wide text-fog">{q.header ?? ""}</div> : null}
+                      <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-snow">{q.question}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {q.options.map((o) => {
+                          const on = picked[q.question]?.includes(o.label);
+                          return (
+                            <button key={o.label} type="button" title={o.description ?? undefined} aria-pressed={on} onClick={() => (multi ? toggle(q.question, o.label, !q.multiSelect) : answer("answer", { option: o.label, answers: { [q.question]: o.label } }))} className={`rounded-lg border px-2.5 py-1.5 text-left text-[13px] ${on ? "border-teal-400 bg-teal-400/15 text-snow" : "border-line-2 bg-slate-2 text-snow hover:bg-slate-3"}`}>
+                              <div>{o.label}</div>
+                              {o.description ? <div className="text-[11.5px] text-fog">{o.description}</div> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {multi ? <Button size="sm" variant="primary" disabled={!answersReady} loading={busy === "answer"} onClick={() => answer("answer", { answers: Object.fromEntries(questions.map((q) => [q.question, (picked[q.question] ?? []).join(", ")])) })}>Send answers</Button> : null}
+                  {!multi ? (
+                    <div className="space-y-2">
+                      <Textarea rows={2} placeholder="Or type an answer…" value={text} onChange={(e) => setText(e.target.value)} />
+                      <Button size="sm" disabled={!text.trim()} loading={busy === "answer"} onClick={() => answer("answer", { text, answers: { [questions[0]!.question]: text } })}>Send answer</Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {ask.options.map((o) => (
+                    <Button key={o} size="sm" className="mr-2" loading={busy === o} onClick={() => answer("answer", { option: o })}>{o}</Button>
+                  ))}
+                  <Textarea rows={2} placeholder="Or type an answer…" value={text} onChange={(e) => setText(e.target.value)} />
+                  <Button size="sm" variant="primary" disabled={!text.trim()} loading={busy === "answer"} onClick={() => answer("answer", { text })}>Send answer</Button>
+                </div>
+              )
             ) : ask.kind === "plan" ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" variant="primary" loading={busy === "approve"} onClick={() => answer("approve")}>Approve plan</Button>
@@ -136,7 +185,7 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
               </div>
             ) : (
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" variant="primary" loading={busy === "allow"} onClick={() => answer("allow")}>Allow once</Button>
+                <AllowMenu ruleLabel={rule ? ruleText(rule) : null} loading={busy === "allow"} onAllow={(scope) => answer("allow", scope === "session" && rule ? { scope, rule } : {})} />
                 <Textarea rows={2} placeholder="Reason for denying (optional)…" value={text} onChange={(e) => setText(e.target.value)} className="w-full" />
                 <Button size="sm" variant="danger" loading={busy === "deny"} onClick={() => answer("deny", { text })}>Deny</Button>
               </div>
@@ -146,6 +195,7 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
           <motion.p key="none" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] text-fog">Nothing is waiting for an answer right now.</motion.p>
         )}
       </AnimatePresence>
+      {ask && s.activity.length ? <ActionList actions={s.activity} now={now} limit={6} title="What led here" /> : null}
 
       <div>
         <div className="mb-1.5 text-[12px] font-medium text-mist">Send a message</div>
@@ -237,7 +287,7 @@ export function SessionPage() {
         ) : null
       }
     >
-      <Respond s={s} canAct={detail.canAct && detail.live} onDone={load} />
+      <Respond s={s} canAct={detail.canAct && detail.live} onDone={load} now={now} />
     </Panel>
   );
 
@@ -305,6 +355,10 @@ export function SessionPage() {
             ) : (
               <div className="flex items-center gap-3 text-[13px] text-fog"><AgentStrip s={s} /></div>
             )}
+          </Panel>
+
+          <Panel title={s.activity.length ? `Activity · ${s.activity.filter((a) => a.status === "running").length ? "working now" : "last tool calls"}` : "Activity"}>
+            <ActionList actions={s.activity} now={now} limit={12} />
           </Panel>
 
           <Panel title={s.plan?.title ? `Plan · ${s.plan.title}` : "Plan"}>

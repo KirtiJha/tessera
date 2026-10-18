@@ -54,6 +54,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       openAsk: s.openAsk,
       tags: s.tags ?? {},
       continuedFrom: s.continuedFrom,
+      activity: s.activity ?? [],
     },
     events: s.outbox.slice(0, 500),
   };

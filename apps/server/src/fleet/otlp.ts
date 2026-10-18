@@ -250,6 +250,7 @@ export class OtlpSession {
         openAsk: null,
         tags: {},
         continuedFrom: null,
+        activity: [],
       },
       events,
     };

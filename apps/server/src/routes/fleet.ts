@@ -179,6 +179,11 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
         decision: z.enum(["allow", "deny", "approve", "reject", "answer"]),
         text: z.string().max(4000).optional(),
         option: z.string().max(300).optional(),
+        /** Answers to several questions at once, by question text. */
+        answers: z.record(z.string().max(1000), z.string().max(1000)).optional(),
+        /** "session" also tells the runtime to stop asking about this pattern until the session ends. */
+        scope: z.enum(["once", "session"]).default("once"),
+        rule: z.object({ tool: z.string().trim().min(1).max(120), content: z.string().trim().max(300).nullable().default(null) }).optional(),
       })
       .parse(req.body);
     const r = await answerAsk(fleet, req.principal!, id, body, "console", { ip: req.ip, log: req.log });

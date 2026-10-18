@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ActivityEvent, AgentReport, OpenAsk, SessionStatus, WaitReason } from "@tessera/contract";
+import type { Action, ActivityEvent, AgentReport, OpenAsk, SessionStatus, WaitReason } from "@tessera/contract";
 import { SESSIONS_DIR, ensureDirs } from "./config.js";
 import { newCursor, type TranscriptCursor } from "./transcript.js";
 
@@ -37,6 +37,10 @@ export interface SessionState {
   seenDeliveries: string[];
   /** Agent ids currently running, in start order (the last is the likely owner of a tool call). */
   runningAgents: string[];
+  /** The most recent tool calls, newest last, so the wall can show what is happening now. */
+  activity: Action[];
+  /** The last call Tessera's policy turned into a prompt, so the prompt can say which rule did it. */
+  forced: { summary: string; reason: string; at: number } | null;
 }
 
 function pathFor(id: string): string {
@@ -83,7 +87,27 @@ export function loadState(id: string, cwd: string | null, transcriptPath: string
     lastReportAt: 0,
     seenDeliveries: [],
     runningAgents: [],
+    activity: [],
+    forced: null,
   };
+}
+
+/** Record a tool call starting; the matching PostToolUse closes it by id. */
+export function startAction(s: SessionState, id: string, tool: string, summary: string, agentId: string | null): void {
+  if (!s.activity) s.activity = [];
+  s.activity.push({ id, ts: new Date().toISOString(), tool, summary: summary.slice(0, 300), agentId, status: "running", endedAt: null, durationMs: null, error: null });
+  if (s.activity.length > 40) s.activity.splice(0, s.activity.length - 40);
+}
+
+export function endAction(s: SessionState, id: string | undefined, status: "ok" | "failed" | "denied", error: string | null = null, durationMs: number | null = null): void {
+  if (!s.activity) s.activity = [];
+  // Without an id (older runtimes), close the newest running call of this session.
+  const a = (id ? s.activity.find((x) => x.id === id) : undefined) ?? [...s.activity].reverse().find((x) => x.status === "running");
+  if (!a) return;
+  a.status = status;
+  a.endedAt = new Date().toISOString();
+  a.durationMs = durationMs ?? Math.max(0, Date.parse(a.endedAt) - Date.parse(a.ts));
+  a.error = error ? error.slice(0, 300) : null;
 }
 
 export function saveState(s: SessionState): void {

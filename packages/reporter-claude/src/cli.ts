@@ -9,7 +9,7 @@ import { get } from "./transport.js";
 const EVENTS: Array<[string, number]> = [
   ["SessionStart", 10],
   ["UserPromptSubmit", 5],
-  ["PreToolUse", 5],
+  ["PreToolUse", 60], // long enough to answer a question from Tessera; ordinary calls return in well under a second
   ["PostToolUse", 5],
   ["PostToolUseFailure", 5],
   ["SubagentStart", 5],
@@ -103,8 +103,8 @@ export async function main(args: string[]): Promise<void> {
         process.stdout.write(`Enrolled as ${body.user ?? "you"}.\n`);
       }
       const existing = loadConfig();
-      saveConfig({ serverUrl: server, token: finalToken, label, machineId: existing?.machineId ?? newMachineId(), excerpts: existing?.excerpts ?? true, permissionWaitSeconds: existing?.permissionWaitSeconds ?? 55 });
-      const who = await get<{ device: string; user: string; liveSessions: number }>({ serverUrl: server, token: finalToken, label, machineId: "", excerpts: true, permissionWaitSeconds: 55 }, "/api/ingest/whoami", 5000);
+      saveConfig({ serverUrl: server, token: finalToken, label, machineId: existing?.machineId ?? newMachineId(), excerpts: existing?.excerpts ?? true, permissionWaitSeconds: existing?.permissionWaitSeconds ?? 55, questionWaitSeconds: existing?.questionWaitSeconds ?? 20 });
+      const who = await get<{ device: string; user: string; liveSessions: number }>({ serverUrl: server, token: finalToken, label, machineId: "", excerpts: true, permissionWaitSeconds: 55, questionWaitSeconds: 20 }, "/api/ingest/whoami", 5000);
       process.stdout.write(who ? `Connected to ${server} as ${who.user} (device "${who.device}"). Config saved to ${CONFIG_PATH}.\nNext: tessera-reporter install\n` : `Token saved to ${CONFIG_PATH}, but ${server} did not answer /api/ingest/whoami. Check the URL.\n`);
       return;
     }

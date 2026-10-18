@@ -37,6 +37,7 @@ interface SessionRow {
   tags: Record<string, string>;
   continued_from: string | null;
   control: SessionRecord["control"];
+  activity: SessionRecord["activity"];
 }
 
 interface AgentRow {
@@ -99,6 +100,7 @@ function rowToRecord(r: SessionRow, agents: AgentRow[]): SessionRecord {
     tags: r.tags,
     continuedFrom: r.continued_from,
     control: r.control,
+    activity: r.activity ?? [],
     agents: agents.map((a) => ({
       id: a.id,
       parentId: a.parent_id,
@@ -157,8 +159,8 @@ export async function loadSession(orgId: string, id: string, q: Queryable = pool
 
 const SESSION_UPSERT = `INSERT INTO sessions (org_id, id, team_id, owner_id, device_id, name, reporter_kind, reporter_version, hostname, machine_id, cwd, model, effort,
         status, wait_reason, started_at, ended_at, end_reason, last_seen_at, dropped_at, context_used, context_window, tokens, usage_by_model,
-        ledger_cost_usd, blowouts, git, files_changed, plan, open_ask, tags, continued_from, control)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
+        ledger_cost_usd, blowouts, git, files_changed, plan, open_ask, tags, continued_from, control, activity)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
      ON CONFLICT (org_id, id) DO UPDATE SET
         team_id = EXCLUDED.team_id, owner_id = EXCLUDED.owner_id, device_id = EXCLUDED.device_id, name = EXCLUDED.name,
         reporter_kind = EXCLUDED.reporter_kind, reporter_version = EXCLUDED.reporter_version, hostname = EXCLUDED.hostname,
@@ -168,7 +170,7 @@ const SESSION_UPSERT = `INSERT INTO sessions (org_id, id, team_id, owner_id, dev
         context_window = EXCLUDED.context_window, tokens = EXCLUDED.tokens, usage_by_model = EXCLUDED.usage_by_model,
         ledger_cost_usd = EXCLUDED.ledger_cost_usd, blowouts = EXCLUDED.blowouts, git = EXCLUDED.git, files_changed = EXCLUDED.files_changed,
         plan = EXCLUDED.plan, open_ask = EXCLUDED.open_ask, tags = EXCLUDED.tags, continued_from = EXCLUDED.continued_from,
-        control = EXCLUDED.control`;
+        control = EXCLUDED.control, activity = EXCLUDED.activity`;
 
 function sessionParams(rec: SessionRecord): unknown[] {
   return [
@@ -177,6 +179,7 @@ function sessionParams(rec: SessionRecord): unknown[] {
     rec.contextUsed, rec.contextWindow, JSON.stringify(rec.tokens), JSON.stringify(rec.usageByModel), rec.ledgerCostUsd, rec.blowouts,
     rec.git ? JSON.stringify(rec.git) : null, JSON.stringify(rec.filesChanged), rec.plan ? JSON.stringify(rec.plan) : null,
     rec.openAsk ? JSON.stringify(rec.openAsk) : null, JSON.stringify(rec.tags), rec.continuedFrom, JSON.stringify(rec.control),
+    JSON.stringify(rec.activity ?? []),
   ];
 }
 
@@ -210,7 +213,7 @@ export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentR
        SELECT $1, $2, x.id, x.parent_id, x.kind, x.type, x.description, x.model, x.effort, x.status, x.started_at, x.ended_at, x.tokens,
               COALESCE(x.usage_by_model, '[]'::jsonb), x.context, COALESCE(x.tool_calls, '{}'::jsonb), COALESCE(x.skills, '[]'::jsonb), x.failure,
               x.prompt_excerpt, x.answer_excerpt
-         FROM jsonb_to_recordset($34::jsonb) AS x(id text, parent_id text, kind text, type text, description text, model text, effort text,
+         FROM jsonb_to_recordset($35::jsonb) AS x(id text, parent_id text, kind text, type text, description text, model text, effort text,
               status text, started_at timestamptz, ended_at timestamptz, tokens jsonb, usage_by_model jsonb, context jsonb, tool_calls jsonb,
               skills jsonb, failure jsonb, prompt_excerpt text, answer_excerpt text)
        ON CONFLICT (org_id, session_id, id) DO UPDATE SET
@@ -223,7 +226,7 @@ export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentR
      e AS (
        INSERT INTO events (org_id, session_id, id, ts, kind, agent_id, text, data)
        SELECT $1, $2, x.id, x.ts, x.kind, x.agent_id, x.text, x.data
-         FROM jsonb_to_recordset($35::jsonb) AS x(id text, ts timestamptz, kind text, agent_id text, text text, data jsonb)
+         FROM jsonb_to_recordset($36::jsonb) AS x(id text, ts timestamptz, kind text, agent_id text, text text, data jsonb)
        ON CONFLICT (org_id, session_id, id) DO NOTHING RETURNING id),
      d AS (
        UPDATE deliveries SET delivered_at = now() WHERE id IN (

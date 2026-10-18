@@ -14,6 +14,8 @@ export interface Config {
   excerpts: boolean;
   /** How long a permission prompt waits for an answer from Tessera before falling back to the terminal, seconds. */
   permissionWaitSeconds: number;
+  /** How long a multiple-choice question waits for an answer from Tessera before the terminal asks, seconds. */
+  questionWaitSeconds: number;
 }
 
 export const HOME = process.env.TESSERA_HOME ?? join(homedir(), ".tessera");
@@ -37,6 +39,7 @@ export function loadConfig(): Config | null {
       machineId: raw.machineId ?? newMachineId(),
       excerpts: raw.excerpts ?? true,
       permissionWaitSeconds: raw.permissionWaitSeconds ?? 55,
+      questionWaitSeconds: raw.questionWaitSeconds ?? 20,
     };
   } catch {
     return null;
