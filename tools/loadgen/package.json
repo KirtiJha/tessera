@@ -1,0 +1,22 @@
+{
+  "name": "@tessera/loadgen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Load generator for Tessera: simulated reporters against the real ingest API, plus a stream client that measures report-to-wall latency.",
+  "scripts": {
+    "start": "tsx loadgen.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "echo ok",
+    "test": "echo ok",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "@tessera/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

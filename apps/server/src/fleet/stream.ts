@@ -1,7 +1,47 @@
 import type { FastifyReply } from "fastify";
 import type { StreamMessage } from "@tessera/contract";
 import { Redis } from "ioredis";
+import { constants as zc, createGzip, type Gzip } from "node:zlib";
 import { config } from "../config.js";
+
+/** A connected browser. Writes go through gzip when the browser accepts it, flushed per message. */
+export interface StreamClient {
+  write(chunk: string): void;
+  close(): void;
+  /** Bytes queued for this client and not yet sent. */
+  backlog(): number;
+}
+
+/** A client that falls this far behind is disconnected; it reconnects and gets a fresh snapshot. */
+const MAX_BACKLOG_BYTES = 8 * 1024 * 1024;
+
+export function openStream(reply: FastifyReply, acceptEncoding: string | undefined): StreamClient {
+  const gzip = /\bgzip\b/.test(acceptEncoding ?? "");
+  reply.raw.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+    ...(gzip ? { "content-encoding": "gzip", vary: "accept-encoding" } : {}),
+  });
+  let z: Gzip | null = null;
+  if (gzip) {
+    // Z_SYNC_FLUSH after every write: compression without holding messages back.
+    z = createGzip({ flush: zc.Z_SYNC_FLUSH, level: 6 });
+    z.pipe(reply.raw);
+  }
+  return {
+    write: (chunk) => {
+      if (z) z.write(chunk);
+      else reply.raw.write(chunk);
+    },
+    close: () => {
+      if (z) z.end();
+      else reply.raw.end();
+    },
+    backlog: () => reply.raw.writableLength + (z?.writableLength ?? 0),
+  };
+}
 
 /**
  * Fan-out of fleet messages to browsers. Each org has its own channel. With
@@ -9,7 +49,7 @@ import { config } from "../config.js";
  * them; otherwise they stay in-process.
  */
 export class StreamHub {
-  private clients = new Map<string, Set<FastifyReply>>();
+  private clients = new Map<string, Set<StreamClient>>();
   private pub: Redis | null = null;
   private sub: Redis | null = null;
   readonly maxClientsPerOrg = 500;
@@ -31,22 +71,29 @@ export class StreamHub {
   }
 
   async stop(): Promise<void> {
-    for (const set of this.clients.values()) for (const r of set) r.raw.end();
+    for (const set of this.clients.values()) for (const c of set) c.close();
     this.clients.clear();
     await this.pub?.quit();
     await this.sub?.quit();
   }
 
-  add(orgId: string, reply: FastifyReply): boolean {
+  /** Register a client; it is removed when `onClose` fires. Returns false when the org is at its client limit. */
+  add(orgId: string, client: StreamClient, onClose: (cb: () => void) => void): boolean {
     let set = this.clients.get(orgId);
     if (!set) this.clients.set(orgId, (set = new Set()));
     if (set.size >= this.maxClientsPerOrg) return false;
-    set.add(reply);
-    reply.raw.on("close", () => {
-      set!.delete(reply);
+    set.add(client);
+    onClose(() => {
+      set!.delete(client);
       if (set!.size === 0) this.clients.delete(orgId);
     });
     return true;
+  }
+
+  clientCount(): number {
+    let n = 0;
+    for (const s of this.clients.values()) n += s.size;
+    return n;
   }
 
   hasClients(orgId: string): boolean {
@@ -67,18 +114,24 @@ export class StreamHub {
   }
 
   /** Send directly to one client (the snapshot on connect). */
-  send(reply: FastifyReply, msg: StreamMessage): void {
-    reply.raw.write(`event: ${msg.type}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+  send(client: StreamClient, msg: StreamMessage): void {
+    client.write(`event: ${msg.type}\ndata: ${JSON.stringify(msg.data)}\n\n`);
   }
 
   private deliver(orgId: string, line: string): void {
     const set = this.clients.get(orgId);
     if (!set) return;
-    for (const r of set) {
+    for (const c of set) {
+      if (c.backlog() > MAX_BACKLOG_BYTES) {
+        this.log.warn({ orgId }, "stream: dropping a client that fell behind");
+        set.delete(c);
+        c.close();
+        continue;
+      }
       try {
-        r.raw.write(line);
+        c.write(line);
       } catch {
-        set.delete(r);
+        set.delete(c);
       }
     }
   }

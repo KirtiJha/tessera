@@ -15,6 +15,22 @@ export const pool = new Pool({
   connectionTimeoutMillis: 10_000,
 });
 
+/**
+ * Reporter writes get their own pool, so a burst of reports can never starve
+ * the console's queries, and run with synchronous_commit off: a report is a
+ * full snapshot the reporter re-sends, so losing the last fraction of a second
+ * of writes on a database crash costs nothing that the next report does not
+ * restore, and it removes a WAL flush from every report.
+ */
+export const ingestPool = new Pool({
+  connectionString: config.databaseUrl,
+  max: Number(process.env.INGEST_POOL_SIZE ?? 20),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+  options: "-c synchronous_commit=off",
+});
+ingestPool.on("error", (err) => console.error("pg ingest pool error", err.message));
+
 pool.on("error", (err) => {
   // A client in the pool errored while idle; the next checkout will make a new one.
   console.error("pg pool error", err.message);

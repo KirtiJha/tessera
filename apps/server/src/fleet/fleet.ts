@@ -2,7 +2,7 @@ import { clean, totalTokens, type ActivityEvent, type EventView, type FleetSnaps
 import type { FastifyBaseLogger } from "fastify";
 import type { DevicePrincipal } from "../auth/devices.js";
 import { config } from "../config.js";
-import { pool, withTx } from "../db/pool.js";
+import { ingestPool, pool, withTx } from "../db/pool.js";
 import { notify } from "../notify/notifier.js";
 import { applicable, budgetStatuses, recordBreach } from "./budgets.js";
 import { deriveSession } from "./derive.js";
@@ -11,6 +11,10 @@ import { priceFor, priceTableFor } from "./pricing.js";
 import * as store from "./store.js";
 import type { StreamHub } from "./stream.js";
 import type { SessionRecord } from "./types.js";
+
+const STREAM_FLUSH_MS = 500;
+const SAMPLE_FLUSH_MS = 5000;
+const DEVICE_TOUCH_MS = 30_000;
 
 function compareMinor(v: string, min: string, max: string): "ok" | "outdated" | "newer" | "unknown" {
   const parse = (s: string) => {
@@ -63,7 +67,15 @@ export class Fleet {
   /** orgId → sessionId → record */
   private live = new Map<string, Map<string, SessionRecord>>();
   private lastTokens = new Map<string, number>();
-  private sendTimers = new Map<string, NodeJS.Timeout>();
+  /** Sessions changed since the last stream flush, and events waiting to go out, per org. */
+  private dirty = new Map<string, Set<string>>();
+  private outEvents = new Map<string, EventView[]>();
+  /** Last written form of each agent, so a report only writes the agents that changed. */
+  private agentSig = new Map<string, Map<string, string>>();
+  /** Per-minute sample buckets waiting to be written. */
+  private samples = new Map<string, store.SampleRow>();
+  /** Last time each device's last_seen_at was written. */
+  private deviceSeen = new Map<string, number>();
   private timers: NodeJS.Timeout[] = [];
   private notifiedWaiting = new Set<string>();
 
@@ -78,6 +90,8 @@ export class Fleet {
     this.log.info({ sessions: recs.length }, "fleet: live set loaded");
     this.timers.push(setInterval(() => void this.sweep().catch((e) => this.log.error({ err: e }, "sweep failed")), 1000));
     this.timers.push(setInterval(() => void this.tick().catch((e) => this.log.error({ err: e }, "tick failed")), 2000));
+    this.timers.push(setInterval(() => void this.flushStream().catch((e) => this.log.error({ err: e }, "stream flush failed")), STREAM_FLUSH_MS));
+    this.timers.push(setInterval(() => void this.flushSamples().catch((e) => this.log.error({ err: e }, "sample flush failed")), SAMPLE_FLUSH_MS));
     this.timers.push(
       setInterval(
         () => void store.prune(config.retainSamplesDays, config.retainEventsDays, config.retainSessionsDays).catch((e) => this.log.error({ err: e }, "prune failed")),
@@ -86,9 +100,9 @@ export class Fleet {
     );
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     for (const t of this.timers) clearInterval(t);
-    for (const t of this.sendTimers.values()) clearTimeout(t);
+    await this.flushSamples().catch((e) => this.log.error({ err: e }, "final sample flush failed"));
   }
 
   private orgMap(orgId: string): Map<string, SessionRecord> {
@@ -121,6 +135,12 @@ export class Fleet {
       kpis,
       recentEvents: recent,
     };
+  }
+
+  totalLive(): number {
+    let n = 0;
+    for (const m of this.live.values()) n += m.size;
+    return n;
   }
 
   /** Count of live, non-ended sessions for the reporter's status line. */
@@ -190,26 +210,35 @@ export class Fleet {
     const delta = Math.max(0, total - prevTotal);
     this.lastTokens.set(key, total);
 
-    const fresh = await withTx(async (c) => {
-      await store.upsertSession(c, rec);
-      const ids = await store.insertEvents(c, orgId, s.id, report.events);
-      await store.insertSample(c, orgId, s.id, now, total, delta, cost, rec.usageByModel);
-      await c.query("UPDATE devices SET last_seen_at = now(), hostname = $2, machine_id = $3 WHERE id = $1", [device.deviceId, rec.hostname, rec.machineId]);
-      await this.syncAsk(c, existing, rec, now);
-      return ids;
-    });
+    // Write only what changed: agents whose content differs from the last write, new events,
+    // and the open question only when it changes. Samples and device last-seen are batched.
+    const sigs = this.agentSigs(key);
+    const changedAgents = rec.agents.filter((a) => sigs.get(a.id) !== JSON.stringify(a));
+    const askChanged = (existing?.openAsk?.id ?? null) !== (rec.openAsk?.id ?? null);
+    const written = await store.ingestOne(ingestPool, rec, changedAgents, report.events);
+    const fresh = written.freshEventIds;
+    if (askChanged) await withTx((c) => this.syncAsk(c, existing, rec, now));
+    for (const a of changedAgents) sigs.set(a.id, JSON.stringify(a));
+    this.bufferSample(orgId, s.id, now, total, delta, cost, rec.usageByModel);
+    await this.touchDevice(device.deviceId, rec.hostname, rec.machineId);
 
     // Keep ended sessions that already lingered out of the live set.
     const wasGone = existing && !this.get(orgId, s.id) && existing.status === "ended";
     if (!wasGone || rec.status !== "ended") this.orgMap(orgId).set(s.id, rec);
 
-    this.scheduleSend(rec);
+    this.markDirty(rec);
     const freshEvents = report.events.filter((e) => fresh.includes(e.id));
-    for (const e of freshEvents) this.hub.broadcast(orgId, { type: "event", data: this.eventView(s.id, e) });
+    if (freshEvents.length) {
+      let q = this.outEvents.get(orgId);
+      if (!q) this.outEvents.set(orgId, (q = []));
+      for (const e of freshEvents) q.push(this.eventView(s.id, e));
+      if (q.length > 500) q.splice(0, q.length - 500);
+    }
 
-    await this.afterIngest(rec, existing, freshEvents);
+    // Notifications and budget checks never hold up the reporter's acknowledgement.
+    void this.afterIngest(rec, existing, freshEvents).catch((e) => this.log.error({ err: e, session: rec.id }, "post-ingest checks failed"));
 
-    const deliveries = await this.takeDeliveries(orgId, s.id);
+    const deliveries = written.deliveries;
     return {
       ok: true,
       serverTime: now,
@@ -355,7 +384,7 @@ export class Fleet {
     if (!rec) return null;
     rec.control = { paused, reason: paused ? reason : null, by: paused ? by : null };
     await store.setControl(orgId, sessionId, rec.control);
-    this.scheduleSend(rec);
+    this.markDirty(rec);
     return rec;
   }
 
@@ -371,23 +400,67 @@ export class Fleet {
 
   // ---- broadcasting ----------------------------------------------------
 
-  private scheduleSend(rec: SessionRecord): void {
-    const key = `${rec.orgId}:${rec.id}`;
-    if (this.sendTimers.has(key)) return;
-    this.sendTimers.set(
-      key,
-      setTimeout(() => {
-        this.sendTimers.delete(key);
-        const latest = this.get(rec.orgId, rec.id);
-        if (!latest) return;
-        void this.view(latest).then((v) => this.hub.broadcast(rec.orgId, { type: "session", data: v }));
-      }, 400),
-    );
+  private markDirty(rec: SessionRecord): void {
+    let set = this.dirty.get(rec.orgId);
+    if (!set) this.dirty.set(rec.orgId, (set = new Set()));
+    set.add(rec.id);
+  }
+
+  /** Send every changed session and new event for each org as one batch. */
+  private async flushStream(): Promise<void> {
+    const orgs = new Set([...this.dirty.keys(), ...this.outEvents.keys()]);
+    for (const orgId of orgs) {
+      const ids = this.dirty.get(orgId);
+      this.dirty.delete(orgId);
+      const events = this.outEvents.get(orgId);
+      this.outEvents.delete(orgId);
+      if (!this.hub.hasClients(orgId)) continue;
+      if (ids?.size) {
+        const table = await priceTableFor(orgId);
+        const now = Date.now();
+        const views: SessionView[] = [];
+        for (const id of ids) {
+          const rec = this.get(orgId, id);
+          if (rec) views.push(deriveSession(rec, table, now, config.staleAfterMs));
+        }
+        if (views.length) this.hub.broadcast(orgId, { type: "sessions", data: views });
+      }
+      if (events?.length) this.hub.broadcast(orgId, { type: "events", data: events });
+    }
+  }
+
+  private agentSigs(key: string): Map<string, string> {
+    let m = this.agentSig.get(key);
+    if (!m) this.agentSig.set(key, (m = new Map()));
+    return m;
+  }
+
+  private bufferSample(orgId: string, sessionId: string, at: string, total: number, delta: number, cost: number | null, usage: SessionRecord["usageByModel"]): void {
+    const minute = new Date(Math.floor(Date.parse(at) / 60_000) * 60_000).toISOString();
+    const k = `${orgId}|${sessionId}|${minute}`;
+    const prev = this.samples.get(k);
+    this.samples.set(k, { orgId, sessionId, minute, tokensTotal: total, tokensDelta: (prev?.tokensDelta ?? 0) + delta, costUsd: cost, usage });
+  }
+
+  private async flushSamples(): Promise<void> {
+    if (!this.samples.size) return;
+    const rows = [...this.samples.values()];
+    this.samples.clear();
+    for (let i = 0; i < rows.length; i += 1000) await store.flushSamples(pool, rows.slice(i, i + 1000));
+  }
+
+  private async touchDevice(deviceId: string, hostname: string | null, machineId: string | null): Promise<void> {
+    const last = this.deviceSeen.get(deviceId) ?? 0;
+    if (Date.now() - last < DEVICE_TOUCH_MS) return;
+    this.deviceSeen.set(deviceId, Date.now());
+    await pool.query("UPDATE devices SET last_seen_at = now(), hostname = $2, machine_id = $3 WHERE id = $1", [deviceId, hostname, machineId]);
   }
 
   private remove(orgId: string, id: string): void {
     this.orgMap(orgId).delete(id);
     this.lastTokens.delete(`${orgId}:${id}`);
+    this.agentSig.delete(`${orgId}:${id}`);
+    this.dirty.get(orgId)?.delete(id);
     this.hub.broadcast(orgId, { type: "removed", data: { id } });
   }
 
@@ -410,7 +483,7 @@ export class Fleet {
           this.log.info({ orgId, session: rec.id }, "fleet: session dropped");
         } else if (staleFor >= 0 && staleFor < 1500) {
           // Just crossed into stale: push the change once.
-          this.scheduleSend(rec);
+          this.markDirty(rec);
           await notify(orgId, {
             event: "session.stale",
             dedupeKey: `${orgId}:${rec.id}:stale:${Math.floor(seen / 1000)}`,

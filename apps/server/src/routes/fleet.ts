@@ -8,7 +8,7 @@ import type { Fleet } from "../fleet/fleet.js";
 import { priceTableFor } from "../fleet/pricing.js";
 import { deriveSession } from "../fleet/derive.js";
 import * as store from "../fleet/store.js";
-import type { StreamHub } from "../fleet/stream.js";
+import { openStream, type StreamHub } from "../fleet/stream.js";
 import { config } from "../config.js";
 
 /** Routes the console calls. Every one needs a signed-in user. */
@@ -24,22 +24,17 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
 
   app.get("/stream", async (req, reply) => {
     const p = req.principal!;
-    reply.raw.writeHead(200, {
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no",
-    });
-    reply.raw.write(": connected\n\n");
-    if (!hub.add(p.orgId, reply)) {
-      reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: "too many clients" })}\n\n`);
-      reply.raw.end();
+    const client = openStream(reply, req.headers["accept-encoding"]);
+    client.write(": connected\n\n");
+    if (!hub.add(p.orgId, client, (cb) => reply.raw.on("close", cb))) {
+      client.write(`event: error\ndata: ${JSON.stringify({ error: "too many clients" })}\n\n`);
+      client.close();
       return reply;
     }
-    hub.send(reply, { type: "snapshot", data: await fleet.snapshot(p.orgId) });
+    hub.send(client, { type: "snapshot", data: await fleet.snapshot(p.orgId) });
     const ping = setInterval(() => {
       try {
-        reply.raw.write(": ping\n\n");
+        client.write(": ping\n\n");
       } catch {
         clearInterval(ping);
       }
