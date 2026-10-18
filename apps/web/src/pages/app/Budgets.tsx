@@ -38,7 +38,7 @@ export function Budgets() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl p-5">
+    <div className="mx-auto max-w-4xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Budgets</h1>
       <p className="mt-1 text-[14px] text-fog">Soft limits notify. Hard limits with enforcement deny every new tool call in the sessions they cover until the window resets.</p>
       <Panel title="Limits" className="mt-5" action={<Button size="sm" variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> Add a budget</Button>}>

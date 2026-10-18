@@ -63,7 +63,7 @@ export function Devices() {
   const npx = `npx -y --package=${origin}/downloads/tessera-reporter.tgz tessera-reporter`;
 
   return (
-    <div className="mx-auto max-w-4xl p-5">
+    <div className="mx-auto max-w-4xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Devices</h1>
       <p className="mt-1 text-[14px] text-fog">Each machine that reports to Tessera has its own token, bound to you. Revoke one and its reporter stops at once.</p>
 

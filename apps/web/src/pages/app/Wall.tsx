@@ -22,16 +22,16 @@ function useNow(ms = 1000) {
   return now;
 }
 
-function Kpi({ label, value, sub, series, color }: { label: string; value: string; sub?: string; series?: number[]; color?: string }) {
+function Kpi({ label, short, value, sub, series, color }: { label: string; short: string; value: string; sub?: string; series?: number[]; color?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-slate-1 px-4 py-3">
-      <div className="text-[12px] text-fog">{label}</div>
+    <div className="min-w-0 rounded-xl border border-line bg-slate-1 px-2.5 py-2 sm:px-4 sm:py-3">
+      <div className="truncate text-[11px] text-fog sm:text-[12px]"><span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span></div>
       <div className="mt-0.5 flex items-end justify-between gap-3">
         <div>
-          <div className="font-display text-[26px] font-semibold leading-none tracking-tight text-snow">{value}</div>
-          {sub ? <div className="mt-1 text-[11.5px] text-fog">{sub}</div> : null}
+          <div className="font-display text-[18px] font-semibold sm:text-[26px] leading-none tracking-tight text-snow">{value}</div>
+          {sub ? <div className="mt-1 hidden text-[11.5px] text-fog sm:block">{sub}</div> : null}
         </div>
-        {series ? <div className="w-28 self-end"><Sparkline values={series} color={color} height={30} /></div> : null}
+        {series ? <div className="hidden w-28 self-end sm:block"><Sparkline values={series} color={color} height={30} /></div> : null}
       </div>
     </div>
   );
@@ -121,18 +121,18 @@ export function Wall() {
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="shrink-0 px-5 pt-5">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Live sessions" value={String(counts.live ?? 0)} sub={`${counts.agents ?? 0} agents working`} />
-            <Kpi label="Waiting on someone" value={String(counts.waiting ?? 0)} sub={kpis?.blowoutsToday ? `${kpis.blowoutsToday} context blowouts today` : "no blowouts today"} />
-            <Kpi label="Tokens per minute" value={kpis ? fmtTokens(kpis.tokensPerMinute.at(-1) ?? 0) : "—"} series={kpis?.tokensPerMinute} />
-            <Kpi label="Estimated cost today" value={kpis ? fmtUsd(kpis.costTodayUsd) : "—"} sub={kpis?.unpricedSessions ? `${kpis.unpricedSessions} session${kpis.unpricedSessions > 1 ? "s" : ""} with unpriced models` : "from tokens × your prices"} series={kpis?.costPerMinuteUsd} color="var(--color-amber-400)" />
+        <div className="shrink-0 px-3 pt-3 sm:px-5 sm:pt-5">
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-4">
+            <Kpi label="Live sessions" short="Live" value={String(counts.live ?? 0)} sub={`${counts.agents ?? 0} agents working`} />
+            <Kpi label="Waiting on someone" short="Waiting" value={String(counts.waiting ?? 0)} sub={kpis?.blowoutsToday ? `${kpis.blowoutsToday} context blowouts today` : "no blowouts today"} />
+            <Kpi label="Tokens per minute" short="Tok/min" value={kpis ? fmtTokens(kpis.tokensPerMinute.at(-1) ?? 0) : "—"} series={kpis?.tokensPerMinute} />
+            <Kpi label="Estimated cost today" short="Today" value={kpis ? fmtUsd(kpis.costTodayUsd) : "—"} sub={kpis?.unpricedSessions ? `${kpis.unpricedSessions} session${kpis.unpricedSessions > 1 ? "s" : ""} with unpriced models` : "from tokens × your prices"} series={kpis?.costPerMinuteUsd} color="var(--color-amber-400)" />
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-2 pb-4">
-            <div className="flex items-center gap-1 rounded-lg border border-line bg-slate-1 p-1">
+          <div className="mt-3 flex flex-wrap items-center gap-2 pb-3 sm:mt-5 sm:pb-4">
+            <div className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-line bg-slate-1 p-1">
               {(["all", "mine", ...ORDER] as const).map((k) => (
-                <button key={k} onClick={() => setOnly(k)} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px] ${only === k ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>
+                <button key={k} onClick={() => setOnly(k)} className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-[12.5px] ${only === k ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>
                   {k !== "all" && k !== "mine" ? <StateShape kind={k} size={10} /> : null}
                   {k === "all" ? "All" : k === "mine" ? "Mine" : KIND[k].label}
                   <span className="text-[11px] text-ash">{counts[k] ?? 0}</span>
@@ -143,14 +143,14 @@ export function Wall() {
               <button onClick={() => setGroup("state")} className={`rounded-md px-2.5 py-1 ${group === "state" ? "bg-slate-3 text-snow" : "text-fog"}`}>By state</button>
               <button onClick={() => setGroup("person")} className={`rounded-md px-2.5 py-1 ${group === "person" ? "bg-slate-3 text-snow" : "text-fog"}`}>By person</button>
             </div>
-            <label className="relative ml-auto">
+            <label className="relative w-full sm:ml-auto sm:w-auto">
               <Search size={14} className="absolute left-2.5 top-2.5 text-fog" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name, branch, person, model…" className="h-9 w-72 rounded-lg border border-line bg-slate-1 pl-8 pr-3 text-[13px] text-snow placeholder:text-ash focus:border-teal-400 focus:outline-none" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name, branch, person, model…" className="h-9 w-full rounded-lg sm:w-72 border border-line bg-slate-1 pl-8 pr-3 text-[13px] text-snow placeholder:text-ash focus:border-teal-400 focus:outline-none" />
             </label>
           </div>
         </div>
 
-        <div ref={scrollRef} className="pane min-h-0 flex-1 overflow-y-auto border-t border-line px-5 pb-5 pt-3">
+        <div ref={scrollRef} className="pane min-h-0 flex-1 overflow-y-auto border-t border-line px-3 pb-5 pt-3 sm:px-5">
           {sessions.length === 0 ? (
             <Empty
               title={connected ? "Nothing is reporting yet" : "Connecting to the fleet"}

@@ -77,7 +77,7 @@ export function Notifications() {
   const patch = (c: Channel, body: Partial<Pick<Channel, "enabled" | "delaySeconds">>) => void api.patch(`/api/admin/channels/${c.id}`, body).then(load);
 
   return (
-    <div className="mx-auto max-w-4xl p-5">
+    <div className="mx-auto max-w-4xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Notifications</h1>
       <p className="mt-1 text-[14px] text-fog">Tell people where they already are. With the Slack app, a waiting permission prompt or plan can be answered from the message itself, under the same rules as the console.</p>
       <Panel title="Channels" className="mt-5" action={<Button size="sm" variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> Add a channel</Button>}>

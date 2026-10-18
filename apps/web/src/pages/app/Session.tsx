@@ -8,6 +8,7 @@ import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
 import { Button, Modal, Panel, Select, Spinner, Textarea, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
+import { useMedia } from "../../lib/useMedia";
 import { sessionKind, sessionLabel, useFleet } from "../../lib/fleet";
 import { ago, fmtDate, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../../lib/format";
 
@@ -22,10 +23,10 @@ interface Detail {
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="border-r border-line px-4 py-3 last:border-r-0">
+    <div className="min-w-0 bg-slate-1 px-4 py-3">
       <div className="text-[11.5px] text-fog">{label}</div>
-      <div className="mt-0.5 text-[16px] font-semibold text-snow">{value}</div>
-      {sub ? <div className="text-[11px] text-fog">{sub}</div> : null}
+      <div className="mt-0.5 truncate text-[16px] font-semibold text-snow">{value}</div>
+      {sub ? <div className="truncate text-[11px] text-fog" title={sub}>{sub}</div> : null}
     </div>
   );
 }
@@ -149,7 +150,7 @@ function Respond({ s, canAct, onDone }: { s: SessionView; canAct: boolean; onDon
       <div>
         <div className="mb-1.5 text-[12px] font-medium text-mist">Send a message</div>
         <Textarea rows={3} placeholder="Delivered the next time the session pauses, as an instruction to continue with." value={message} onChange={(e) => setMessage(e.target.value)} />
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={!message.trim()} loading={busy === "message"} onClick={() => act("message", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/message`, { text: message }).then(() => setMessage("")), "Message queued for the session.")}><Send size={14} /> Send</Button>
           <Button size="sm" disabled={s.stopRequested || s.status !== "running"} title={s.status !== "running" ? "Stop applies while the session is working" : undefined} loading={busy === "stop"} onClick={() => setStopOpen(true)}><OctagonX size={14} /> {s.stopRequested ? "Stopping…" : "Stop"}</Button>
           <Button size="sm" onClick={() => setHandOpen(true)}><Hand size={14} /> {s.assignee ? "Reassign" : "Hand over"}</Button>
@@ -197,6 +198,8 @@ export function SessionPage() {
   const [agent, setAgent] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "replay" ? "replay" : "overview";
+  // On a phone, what needs an answer comes first; on a wide screen it sits beside the detail.
+  const wide = useMedia("(min-width: 1024px)");
 
   const load = useCallback(async () => {
     try {
@@ -223,33 +226,51 @@ export function SessionPage() {
   const plan = s.plan?.steps ?? [];
   const tokSeries = detail.series.map((p) => p.tokens);
 
+  const respond = (
+    <Panel
+      title="Respond"
+      action={
+        detail.live && detail.canAct ? (
+          <button onClick={() => void api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/drop`).then(() => { toast("Removed from the wall."); nav("/app"); })} className="inline-flex items-center gap-1 text-[12px] text-fog hover:text-rose-400" title="Remove from the live wall (the session itself keeps running)">
+            <Trash2 size={13} /> Remove
+          </button>
+        ) : null
+      }
+    >
+      <Respond s={s} canAct={detail.canAct && detail.live} onDone={load} />
+    </Panel>
+  );
+
   return (
-    <div className="p-5">
+    <div className="p-3 sm:p-5">
       <Link to="/app" className="inline-flex items-center gap-1.5 text-[13px] text-fog hover:text-snow"><ArrowLeft size={14} /> Live wall</Link>
 
+      {/* On a phone, answering is the point: the prompt and its buttons come before everything else. */}
+      {!wide && tab === "overview" ? <div className="mt-3">{respond}</div> : null}
+
       <div className="mt-3 overflow-hidden rounded-xl border border-line bg-slate-1" style={{ borderTopColor: k.color, borderTopWidth: 3 }}>
-        <div className="flex flex-wrap items-start gap-4 px-5 pt-4">
+        <div className="flex flex-wrap items-start gap-4 px-4 pt-4 sm:px-5">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
               <StateShape kind={kind} size={14} />
-              <h1 className="truncate font-display text-[26px] font-semibold tracking-tight text-snow">{sessionLabel(s)}</h1>
+              <h1 className="min-w-0 max-w-full truncate font-display text-[22px] sm:text-[26px] font-semibold tracking-tight text-snow">{sessionLabel(s)}</h1>
               {s.tags.paused ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400">paused</span> : null}
               {s.stopRequested ? <span className="rounded-md bg-rose-600/20 px-2 py-0.5 text-[11.5px] font-medium text-rose-400">stopping</span> : null}
               {s.assignee ? <span className="rounded-md bg-violet-400/15 px-2 py-0.5 text-[11.5px] font-medium text-violet-400">handed to {s.assignee.name}</span> : null}
             </div>
-            <div className="mt-1 text-[13px] text-fog">
+            <div className="mt-1 break-words text-[13px] text-fog">
               {s.ownerName ?? "Unassigned"}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.cwd ? ` · ${s.cwd}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}{s.git?.worktree ? " (worktree)" : ""}
             </div>
             <div className="mt-2 text-[13px] font-medium" style={{ color: k.color }}>
               {k.label}{kind === "stale" ? ` · last report ${ago(s.lastSeenAt, now)}` : ""}{kind === "done" && s.endReason ? ` · ${s.endReason}` : ""}
             </div>
           </div>
-          <div className="w-56">
+          <div className="hidden w-56 sm:block">
             <div className="text-[11.5px] text-fog">Tokens per minute · last 2 h</div>
             <Sparkline values={tokSeries.length ? tokSeries : [0, 0]} height={44} />
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-3 border-t border-line sm:grid-cols-6">
+        <div className="mt-4 grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Model" value={modelShort(s.model)} sub={s.effort ?? undefined} />
           <Stat label="Est. cost" value={fmtUsd(s.costUsd, 4)} sub={s.unpricedModels.length ? `unpriced: ${s.unpricedModels.join(", ")}` : s.agents.length ? `incl. ${s.agents.length} agents` : "orchestrator only"} />
           <Stat label="Tokens" value={fmtTokens(s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite)} sub={`${fmtTokens(s.tokens.cacheRead)} cache read`} />
@@ -266,15 +287,15 @@ export function SessionPage() {
             {tab === t ? <motion.span layoutId="session-tab" className="absolute inset-x-2 -bottom-px h-0.5 rounded bg-teal-400" /> : null}
           </button>
         ))}
-        <Link to={`/app/compare?a=${encodeURIComponent(s.id)}`} className="ml-auto pb-1 text-[12.5px] text-fog hover:text-teal-300">Compare with another session →</Link>
+        <Link to={`/app/compare?a=${encodeURIComponent(s.id)}`} className="ml-auto hidden pb-1 text-[12.5px] sm:block text-fog hover:text-teal-300">Compare with another session →</Link>
       </div>
 
       {tab === "replay" ? (
         <div className="mt-4"><Panel><Replay sessionId={s.id} live={detail.live} /></Panel></div>
       ) : (
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="space-y-4">
-          <Panel title="Agents">
+        <div className="min-w-0 space-y-4">
+                    <Panel title="Agents">
             {s.context ? <div className="mb-3"><ContextBar used={s.context.used} window={s.context.window} blowouts={s.blowouts} /></div> : null}
             {s.agents.length ? (
               <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
@@ -317,19 +338,8 @@ export function SessionPage() {
           ) : null}
         </div>
 
-        <div className="space-y-4">
-          <Panel
-            title="Respond"
-            action={
-              detail.live && detail.canAct ? (
-                <button onClick={() => void api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/drop`).then(() => { toast("Removed from the wall."); nav("/app"); })} className="inline-flex items-center gap-1 text-[12px] text-fog hover:text-rose-400" title="Remove from the live wall (the session itself keeps running)">
-                  <Trash2 size={13} /> Remove
-                </button>
-              ) : null
-            }
-          >
-            <Respond s={s} canAct={detail.canAct && detail.live} onDone={load} />
-          </Panel>
+        <div className="min-w-0 space-y-4">
+          {wide ? respond : null}
 
           <Panel title="Questions and answers">
             {detail.asks.length ? (

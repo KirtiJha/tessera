@@ -21,14 +21,14 @@ export function History() {
   }, [page, q]);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   return (
-    <div className="p-5">
+    <div className="p-3 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">History</h1>
           <p className="mt-1 text-[14px] text-fog">Every session that has ended or dropped off the wall, newest first.</p>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }} className="flex gap-2">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, repo, branch, path" className="w-72" />
+        <form onSubmit={(e) => { e.preventDefault(); setPage(1); setQ(search); }} className="flex w-full gap-2 sm:w-auto">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, repo, branch, path" className="w-full sm:w-72" />
           <Button type="submit">Search</Button>
         </form>
       </div>

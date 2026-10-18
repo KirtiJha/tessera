@@ -82,7 +82,7 @@ export function DataPage() {
   );
 
   return (
-    <div className="mx-auto max-w-4xl p-5">
+    <div className="mx-auto max-w-4xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Data and compliance</h1>
       <p className="mt-1 text-[14px] text-fog">What Tessera keeps about your sessions, for how long, and how it leaves. Holding {d.stored.sessions.toLocaleString()} sessions, {d.stored.events.toLocaleString()} events and {d.stored.audit.toLocaleString()} audit entries{d.stored.oldest ? `, the oldest from ${fmtDate(d.stored.oldest)}` : ""}.</p>
       {ro ? <p className="mt-3 rounded-lg border border-line-2 bg-slate-2 px-3 py-2 text-[13px] text-mist">Only an owner can change these settings. Admins can export.</p> : null}

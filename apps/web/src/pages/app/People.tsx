@@ -64,12 +64,12 @@ export function People() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl p-5">
+    <div className="mx-auto max-w-5xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">People and teams</h1>
       <p className="mt-1 text-[14px] text-fog">Who can see the wall, who can act on which sessions, and how sessions group.</p>
 
       <Panel title="People" className="mt-5" action={<Button size="sm" variant="primary" onClick={() => setInvite(true)}><Plus size={14} /> Invite</Button>}>
-        <table className="w-full text-[13px]">
+        <div className="-mx-1 overflow-x-auto px-1"><table className="w-full min-w-[560px] text-[13px]">
           <thead className="text-left text-[11.5px] text-fog"><tr><th className="pb-2 font-medium">Name</th><th className="pb-2 font-medium">Role</th><th className="pb-2 font-medium">Team</th><th className="pb-2 font-medium">Devices</th><th className="pb-2 font-medium">Last sign-in</th><th className="pb-2 font-medium">Status</th></tr></thead>
           <tbody className="divide-y divide-line">
             {users.map((u) => (
@@ -97,7 +97,7 @@ export function People() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
         <div className="mt-4 grid gap-1.5 text-[12px] text-fog sm:grid-cols-2">
           {ROLES.map((r) => <div key={r}><span className="font-medium text-mist">{r}</span> — {ROLE_HELP[r]}</div>)}
         </div>

@@ -34,17 +34,17 @@ export function Prices() {
     </tr>
   );
   return (
-    <div className="mx-auto max-w-5xl p-5">
+    <div className="mx-auto max-w-5xl p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Model prices</h1>
       <p className="mt-1 text-[14px] text-fog">USD per million tokens. Built-in list prices as of {data?.asOf}; override any with your contracted rate, or add a model Tessera does not know. Changes reprice everything at once.</p>
       <Panel title="Prices" className="mt-5" action={<Button size="sm" variant="primary" onClick={() => setEdit({ prefix: "", label: "", input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })}><Plus size={14} /> Add a model</Button>}>
-        <table className="w-full text-[13px]">
+        <div className="-mx-1 overflow-x-auto px-1"><table className="w-full min-w-[600px] text-[13px]">
           <thead className="text-left text-[11.5px] text-fog"><tr><th className="pb-2 font-medium">Model</th><th className="pb-2 font-medium">Matches ids starting with</th><th className="pb-2 text-right font-medium">Input</th><th className="pb-2 text-right font-medium">Output</th><th className="pb-2 text-right font-medium">Cache read</th><th className="pb-2 text-right font-medium">Cache write</th><th /></tr></thead>
           <tbody className="divide-y divide-line">
             {data?.overrides.map((p) => <Row key={`o-${p.prefix}`} p={p} custom />)}
             {data?.builtin.filter((p) => !overridden.has(p.prefix.toLowerCase())).map((p) => <Row key={p.prefix} p={p} custom={false} />)}
           </tbody>
-        </table>
+        </table></div>
       </Panel>
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.label ? `Price for ${edit.label}` : "Add a model"}>
         {edit ? (
@@ -78,7 +78,7 @@ export function Audit() {
   }, []);
   useEffect(() => void load(), [load]);
   return (
-    <div className="mx-auto max-w-5xl p-5">
+    <div className="mx-auto max-w-5xl p-3 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">Audit log</h1>
@@ -89,8 +89,8 @@ export function Audit() {
           <Button size="sm" onClick={() => void api.get<typeof verify>("/api/admin/audit/verify").then(setVerify)}>Verify chain</Button>
         </div>
       </div>
-      <div className="mt-5 overflow-hidden rounded-xl border border-line">
-        <table className="w-full text-[13px]">
+      <div className="mt-5 overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[760px] text-[13px]">
           <thead className="bg-slate-1 text-left text-[11.5px] text-fog"><tr><th className="px-4 py-2.5 font-medium">When</th><th className="px-3 py-2.5 font-medium">Who</th><th className="px-3 py-2.5 font-medium">Action</th><th className="px-3 py-2.5 font-medium">Target</th><th className="px-3 py-2.5 font-medium">Detail</th><th className="px-4 py-2.5 font-medium">Hash</th></tr></thead>
           <tbody className="divide-y divide-line">
             {entries.map((e) => (
@@ -128,7 +128,7 @@ export function Account() {
     }
   };
   return (
-    <div className="mx-auto max-w-lg p-5">
+    <div className="mx-auto max-w-lg p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Account</h1>
       <Panel title="Change password" className="mt-5">
         <form onSubmit={submit} className="space-y-4">

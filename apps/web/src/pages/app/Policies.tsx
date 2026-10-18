@@ -237,7 +237,7 @@ export function Policies() {
 
   if (!data) return null;
   return (
-    <div className="mx-auto max-w-6xl p-5">
+    <div className="mx-auto max-w-6xl p-3 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">Policies</h1>

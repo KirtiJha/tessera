@@ -103,8 +103,12 @@ test("a policy written in the console decides the next tool call", async () => {
 test("replay, analytics and the audit log show what happened", async () => {
   await page.goto(`/app/sessions/${sessionId}?tab=replay`);
   await expect(page.getByRole("slider", { name: "Replay position" })).toBeVisible();
-  await page.keyboard.press("Space");
-  await expect(page.getByRole("button", { name: "Pause replay" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play replay" })).toBeVisible();
+  // Space plays once the timeline has loaded; press again if the first press landed before that.
+  await expect(async () => {
+    if (await page.getByRole("button", { name: "Play replay" }).isVisible()) await page.keyboard.press("Space");
+    await expect(page.getByRole("button", { name: "Pause replay" })).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 10_000 });
 
   await page.goto("/app/analytics");
   await expect(page.getByText("Estimated spend")).toBeVisible();
