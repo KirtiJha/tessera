@@ -30,7 +30,7 @@ function shannonEntropy(s: string): number {
   return h;
 }
 
-const HIGH_ENTROPY_TOKEN = /\b[A-Za-z0-9+/_=-]{32,}\b/g;
+const HIGH_ENTROPY_TOKEN = /(?<![A-Za-z0-9+_=-])[A-Za-z0-9+_=-]{32,}(?![A-Za-z0-9+_=-])/g;
 
 export function redact(text: string): string {
   let out = text;
@@ -38,10 +38,12 @@ export function redact(text: string): string {
     out = out.replace(re, (m, key?: string) => (typeof key === "string" && /^(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)$/i.test(key) ? `${key}=[redacted]` : "[redacted]"));
   }
   out = out.replace(HIGH_ENTROPY_TOKEN, (m) => {
-    if (/^[0-9a-f-]+$/i.test(m) && m.length === 36) return m; // UUIDs are not secrets
+    if (/^[0-9a-f-]+$/i.test(m)) return m; // uuids, git shas, hex ids are not secrets
     if (/^[0-9]+$/.test(m)) return m;
-    const hasMixed = /[a-z]/.test(m) && /[A-Z0-9]/.test(m);
-    return hasMixed && shannonEntropy(m) > 4.2 ? "[redacted]" : m;
+    const upperLower = /[a-z]/.test(m) && /[A-Z]/.test(m);
+    const letterDigit = /[a-zA-Z]/.test(m) && /[0-9]/.test(m);
+    const h = shannonEntropy(m);
+    return (upperLower && h > 4.2) || (letterDigit && h > 4.6) ? "[redacted]" : m;
   });
   return out;
 }

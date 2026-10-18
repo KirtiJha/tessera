@@ -58,5 +58,8 @@ describe("redact", () => {
     expect(redact(`id ${uuid}`)).toBe(`id ${uuid}`);
     expect(redact("x9K2mP4qL8nR7vT1wZ5yB3cD6fG0hJ4k")).toBe("[redacted]");
     expect(redact("thisisjustaverylongordinarylowercaseword")).toContain("ordinary");
+    const path = "/tmp/claude-0/-home-claude/f6f99f43-73a4-5c7d-b3ee-27af75e49e90/scratchpad/repo";
+    expect(redact(path)).toBe(path);
+    expect(redact("git sha 3f2a9c1e5b7d4e8a9c217d4e5f6a8b90c0ffee12 ok")).toContain("3f2a9c1e5b7d");
   });
 });

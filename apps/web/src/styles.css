@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  --font-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-ink: #101418;
+  --color-ink-2: #161c23;
+  --color-slate-1: #1a2028;
+  --color-slate-2: #232b35;
+  --color-slate-3: #2e3844;
+  --color-line: #2a3340;
+  --color-line-2: #3a4553;
+  --color-fog: #8b97a6;
+  --color-mist: #c7cfd9;
+  --color-snow: #eef1f4;
+  --color-paper: #f6f5f0;
+  --color-paper-2: #ecebe4;
+  --color-ash: #5b6672;
+
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-600: #0f766e;
+  --color-teal-700: #0b5c56;
+  --color-amber-400: #f5a524;
+  --color-amber-500: #d98a0c;
+  --color-rose-400: #f0566a;
+  --color-rose-600: #c93a4e;
+  --color-violet-400: #a78bfa;
+
+  --radius-tile: 7px;
+  --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -16px rgba(0, 0, 0, 0.6);
+  --ease-tile: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
+  background: var(--color-ink);
+  color: var(--color-snow);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 96;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-teal-400);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: rgba(45, 212, 191, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Thin scrollbars inside panes */
+.pane {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-2) transparent;
+}
+
+/* Subtle pulse for a tile that waits on you */
+@keyframes tessera-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 165, 36, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(245, 165, 36, 0.14);
+  }
+}
+.breathe {
+  animation: tessera-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes tessera-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.dot-live {
+  animation: tessera-dot 1.6s ease-in-out infinite;
+}
+
+/* The landing page is light; the app is dark. */
+.light {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}

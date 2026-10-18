@@ -1,6 +1,14 @@
 import { sha256 } from "./auth/crypto.js";
 import { pool, type Queryable } from "./db/pool.js";
 
+/** Deterministic JSON: jsonb does not keep key order, so hashes must not depend on it. */
+export function canonical(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
+}
+
 export interface AuditInput {
   orgId: string;
   actorId: string | null;
@@ -22,9 +30,7 @@ export async function audit(input: AuditInput, q: Queryable = pool): Promise<voi
   const prevHash = prev.rows[0]?.hash ?? null;
   const createdAt = new Date().toISOString();
   const detail = input.detail ?? {};
-  const hash = sha256(
-    JSON.stringify([prevHash, input.orgId, input.actorId, input.actorName, input.action, input.targetType ?? null, input.targetId ?? null, detail, createdAt]),
-  );
+  const hash = sha256(canonical([prevHash, input.orgId, input.actorId, input.actorName, input.action, input.targetType ?? null, input.targetId ?? null, detail, createdAt]));
   await q.query(
     `INSERT INTO audit_log (org_id, actor_id, actor_name, action, target_type, target_id, detail, ip, created_at, prev_hash, hash)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
@@ -47,9 +53,7 @@ export async function verifyChain(orgId: string): Promise<{ ok: boolean; checked
   }>("SELECT * FROM audit_log WHERE org_id = $1 ORDER BY id ASC", [orgId]);
   let prev: string | null = null;
   for (const row of r.rows) {
-    const expect = sha256(
-      JSON.stringify([prev, orgId, row.actor_id, row.actor_name, row.action, row.target_type, row.target_id, row.detail, row.created_at]),
-    );
+    const expect = sha256(canonical([prev, orgId, row.actor_id, row.actor_name, row.action, row.target_type, row.target_id, row.detail, row.created_at]));
     if (row.prev_hash !== prev || row.hash !== expect) return { ok: false, checked: r.rows.length, brokenAt: row.id };
     prev = row.hash;
   }

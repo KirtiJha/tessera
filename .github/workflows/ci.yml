@@ -1,0 +1,44 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tessera
+          POSTGRES_PASSWORD: tessera
+          POSTGRES_DB: tessera
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tessera" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://tessera:tessera@localhost:5432/tessera
+      SECRET_KEY: ci-secret-key-that-is-long-enough-0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tessera/contract build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm db:migrate
+      - name: Smoke the API
+        run: |
+          cd apps/server && (node dist/index.js > server.log 2>&1 &) && sleep 4
+          curl -fsS localhost:4700/api/health
+          curl -fsS -o /dev/null -w "%{http_code}\n" localhost:4700/ | grep 200
+      - name: Container image
+        run: docker build -t tessera:ci .

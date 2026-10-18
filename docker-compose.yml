@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tessera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tessera}
+      POSTGRES_DB: tessera
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tessera"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tessera:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://tessera:${POSTGRES_PASSWORD:-tessera}@postgres:5432/tessera
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY to a long random string}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4700}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      BOOTSTRAP_ORG_NAME: ${BOOTSTRAP_ORG_NAME:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      LOG_FORMAT: json
+    ports:
+      - "${PORT:-4700}:4700"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
