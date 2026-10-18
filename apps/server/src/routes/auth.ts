@@ -4,6 +4,7 @@ import { audit } from "../audit.js";
 import { hashPassword, newToken, sha256, verifyPassword } from "../auth/crypto.js";
 import { checkMutation, clearSessionCookie, COOKIE, createUserSession, destroyUserSession, requireUser, setSessionCookie } from "../auth/session.js";
 import { pool, withTx } from "../db/pool.js";
+import { ssoEnforcedFor } from "./sso.js";
 
 const Email = z.string().trim().toLowerCase().email().max(200);
 const Password = z.string().min(10).max(200);
@@ -41,8 +42,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/signin", { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } }, async (req, reply) => {
     const body = z.object({ email: Email, password: z.string().max(200) }).parse(req.body);
-    const r = await pool.query<{ id: string; org_id: string; name: string; password_hash: string | null; status: string }>(
-      "SELECT id, org_id, name, password_hash, status FROM users WHERE lower(email) = $1",
+    const r = await pool.query<{ id: string; org_id: string; name: string; password_hash: string | null; status: string; role: string }>(
+      "SELECT id, org_id, name, password_hash, status, role FROM users WHERE lower(email) = $1",
       [body.email],
     );
     const u = r.rows[0];
@@ -50,6 +51,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!u || !ok || u.status !== "active") {
       await new Promise((res) => setTimeout(res, 300));
       return reply.code(401).send({ error: "Wrong email or password." });
+    }
+    if (await ssoEnforcedFor(u.org_id, u.role)) {
+      return reply.code(403).send({ error: "Your organisation signs in with single sign-on. Use “Sign in with SSO”.", sso: true });
     }
     await pool.query("UPDATE users SET last_login_at = now() WHERE id = $1", [u.id]);
     const token = await createUserSession(u.id, req.ip, req.headers["user-agent"]);
@@ -78,17 +82,22 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   // Invitation: an admin creates an invite; the invitee sets a password with the token.
   app.get("/invite/:token", async (req, reply) => {
     const { token } = req.params as { token: string };
-    const r = await pool.query<{ email: string; name: string; org: string }>(
-      "SELECT u.email, u.name, o.name AS org FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.invite_token_hash = $1 AND u.status = 'invited'",
+    const r = await pool.query<{ email: string; name: string; org: string; org_id: string; role: string }>(
+      "SELECT u.email, u.name, o.name AS org, u.org_id, u.role FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.invite_token_hash = $1 AND u.status = 'invited'",
       [sha256(token)],
     );
-    if (!r.rows[0]) return reply.code(404).send({ error: "This invitation is not valid any more." });
-    return r.rows[0];
+    const row = r.rows[0];
+    if (!row) return reply.code(404).send({ error: "This invitation is not valid any more." });
+    return { email: row.email, name: row.name, org: row.org, ssoRequired: await ssoEnforcedFor(row.org_id, row.role) };
   });
 
   app.post("/invite/:token/accept", { config: { rateLimit: { max: 10, timeWindow: "1 hour" } } }, async (req, reply) => {
     const { token } = req.params as { token: string };
     const body = z.object({ name: z.string().trim().min(1).max(100), password: Password }).parse(req.body);
+    const pending = await pool.query<{ org_id: string; role: string }>("SELECT org_id, role FROM users WHERE invite_token_hash = $1 AND status = 'invited'", [sha256(token)]);
+    if (pending.rows[0] && (await ssoEnforcedFor(pending.rows[0].org_id, pending.rows[0].role))) {
+      return reply.code(403).send({ error: "Your organisation signs in with single sign-on. Use “Sign in with SSO” with your work email to finish joining.", sso: true });
+    }
     const r = await pool.query<{ id: string; org_id: string }>(
       `UPDATE users SET name = $2, password_hash = $3, status = 'active', invite_token_hash = NULL, last_login_at = now()
         WHERE invite_token_hash = $1 AND status = 'invited' RETURNING id, org_id`,

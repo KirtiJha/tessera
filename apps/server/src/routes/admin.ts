@@ -42,12 +42,12 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.get("/users", async (req) => {
     const p = req.principal!;
     const r = await pool.query(
-      `SELECT u.id, u.email, u.name, u.role, u.status, u.team_id, t.name AS team_name, u.created_at, u.last_login_at,
+      `SELECT u.id, u.email, u.name, u.role, u.status, u.team_id, t.name AS team_name, u.created_at, u.last_login_at, u.sso_subject IS NOT NULL AS sso_linked,
               (SELECT COUNT(*)::int FROM devices d WHERE d.user_id = u.id AND d.revoked_at IS NULL) AS devices
          FROM users u LEFT JOIN teams t ON t.id = u.team_id WHERE u.org_id = $1 ORDER BY u.created_at ASC`,
       [p.orgId],
     );
-    return { users: r.rows.map((u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, teamId: u.team_id, teamName: u.team_name, createdAt: u.created_at, lastLoginAt: u.last_login_at, devices: u.devices })) };
+    return { users: r.rows.map((u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, teamId: u.team_id, teamName: u.team_name, createdAt: u.created_at, lastLoginAt: u.last_login_at, devices: u.devices, ssoLinked: u.sso_linked })) };
   });
 
   app.post("/users/invite", async (req, reply) => {

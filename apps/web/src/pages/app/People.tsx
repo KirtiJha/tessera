@@ -5,7 +5,7 @@ import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ago } from "../../lib/format";
 
-interface User { id: string; email: string; name: string; role: string; status: string; teamId: string | null; teamName: string | null; lastLoginAt: string | null; devices: number }
+interface User { id: string; email: string; name: string; role: string; status: string; teamId: string | null; teamName: string | null; lastLoginAt: string | null; devices: number; ssoLinked: boolean }
 interface Team { id: string; name: string; members: number }
 
 const ROLES = ["viewer", "operator", "approver", "admin", "owner"] as const;
@@ -74,7 +74,10 @@ export function People() {
           <tbody className="divide-y divide-line">
             {users.map((u) => (
               <tr key={u.id} className={u.status === "disabled" ? "text-ash" : "text-mist"}>
-                <td className="py-2.5"><div className="font-medium text-snow">{u.name}{u.id === me?.user.id ? <span className="ml-1.5 text-[11px] text-fog">(you)</span> : null}</div><div className="text-[11.5px] text-fog">{u.email}</div></td>
+                <td className="py-2.5">
+                  <div className="font-medium text-snow">{u.name}{u.id === me?.user.id ? <span className="ml-1.5 text-[11px] text-fog">(you)</span> : null}{u.ssoLinked ? <span className="ml-2 rounded bg-teal-700/40 px-1.5 py-0.5 text-[10.5px] font-medium text-teal-300" title="Signs in through your identity provider">SSO</span> : null}</div>
+                  <div className="text-[11.5px] text-fog">{u.email}{u.ssoLinked && me?.user.role === "owner" ? <button onClick={() => { if (confirm(`Unlink ${u.name} from their identity at your provider? Their next SSO sign-in links whichever identity your provider sends for ${u.email}.`)) void api.post(`/api/admin/sso/users/${u.id}/unlink`).then(() => { toast("Unlinked."); return load(); }); }} className="ml-2 text-fog underline-offset-2 hover:text-rose-400 hover:underline">Unlink SSO</button> : null}</div>
+                </td>
                 <td className="py-2.5">
                   <select value={u.role} disabled={u.id === me?.user.id || (u.role === "owner" && me?.user.role !== "owner")} onChange={(e) => void update(u, { role: e.target.value })} className="rounded-md border border-line-2 bg-ink-2 px-2 py-1 text-[12.5px] text-snow disabled:opacity-60" title={ROLE_HELP[u.role]}>
                     {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}

@@ -1,0 +1,22 @@
+{
+  "name": "@tessera/dev-idp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local OpenID Connect provider for trying Tessera's single sign-on without an Okta, Entra or Google account. Development only.",
+  "scripts": {
+    "start": "tsx dev-idp.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "echo ok",
+    "test": "echo ok",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

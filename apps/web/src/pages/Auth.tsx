@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Lockup } from "../components/Logo";
 import { Button, Field, Input } from "../components/ui";
 import { api, ApiError } from "../lib/api";
@@ -19,13 +19,51 @@ function Frame({ title, lead, children, foot }: { title: string; lead?: string; 
   );
 }
 
+function ssoStartUrl(email: string, returnTo: string): string {
+  return `/api/auth/sso/start?email=${encodeURIComponent(email)}&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+/**
+ * Email first. If the email's domain signs in through the organisation's
+ * identity provider, offer (or, when the organisation requires it, go straight
+ * to) single sign-on; otherwise ask for the password.
+ */
 export function SignIn() {
   const nav = useNavigate();
+  const loc = useLocation();
+  const [params] = useSearchParams();
   const { refresh } = useAuth();
+  const returnTo = (loc.state as { from?: string } | null)?.from ?? "/app";
+  const [step, setStep] = useState<"email" | "password">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [err, setErr] = useState<string | null>(null);
+  const [sso, setSso] = useState<{ orgName: string; enforced: boolean } | null>(null);
+  const [err, setErr] = useState<string | null>(params.get("sso_error"));
   const [busy, setBusy] = useState(false);
+
+  const goSso = () => {
+    setBusy(true);
+    window.location.assign(ssoStartUrl(email, returnTo));
+  };
+
+  const next = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      const d = await api.get<{ sso: boolean; orgName?: string; enforced?: boolean }>(`/api/auth/sso/discover?email=${encodeURIComponent(email)}`);
+      if (d.sso && d.enforced) {
+        window.location.assign(ssoStartUrl(email, returnTo));
+        return;
+      }
+      setSso(d.sso ? { orgName: d.orgName ?? "your organisation", enforced: false } : null);
+      setStep("password");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not continue.");
+    }
+    setBusy(false);
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -33,20 +71,36 @@ export function SignIn() {
     try {
       await api.post("/api/auth/signin", { email, password });
       await refresh();
-      nav("/app");
+      nav(returnTo);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not sign in.");
     } finally {
       setBusy(false);
     }
   };
+
   return (
     <Frame title="Sign in" foot={<>New here? <Link to="/signup" className="text-teal-400 hover:underline">Create an organisation</Link></>}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Email"><Input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-        <Field label="Password" error={err}><Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
-        <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy}>Sign in</Button>
-      </form>
+      {step === "email" ? (
+        <form onSubmit={next} className="space-y-4">
+          <Field label="Work email" error={err}><Input type="email" autoComplete="email" autoFocus required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy}>Continue</Button>
+        </form>
+      ) : (
+        <div className="space-y-4">
+          <button onClick={() => { setStep("email"); setErr(null); }} className="text-[13.5px] text-fog hover:text-snow">{email} · <span className="text-teal-400">change</span></button>
+          {sso ? (
+            <>
+              <Button variant="primary" size="lg" className="w-full" loading={busy} onClick={goSso}>Sign in with {sso.orgName} SSO</Button>
+              <div className="flex items-center gap-3 text-[12px] text-ash"><span className="h-px flex-1 bg-line" />or use your password<span className="h-px flex-1 bg-line" /></div>
+            </>
+          ) : null}
+          <form onSubmit={submit} className="space-y-4">
+            <Field label="Password" error={err}><Input type="password" autoComplete="current-password" autoFocus={!sso} required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+            <Button type="submit" variant={sso ? "secondary" : "primary"} size="lg" className="w-full" loading={busy && !sso}>Sign in</Button>
+          </form>
+        </div>
+      )}
     </Frame>
   );
 }
@@ -88,13 +142,13 @@ export function Invite() {
   const { token = "" } = useParams();
   const nav = useNavigate();
   const { refresh } = useAuth();
-  const [info, setInfo] = useState<{ email: string; name: string; org: string } | null>(null);
+  const [info, setInfo] = useState<{ email: string; name: string; org: string; ssoRequired?: boolean } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.get<{ email: string; name: string; org: string }>(`/api/auth/invite/${token}`).then((i) => {
+    api.get<{ email: string; name: string; org: string; ssoRequired?: boolean }>(`/api/auth/invite/${token}`).then((i) => {
       setInfo(i);
       setName(i.name);
     }).catch((e) => setErr(e instanceof ApiError ? e.message : "This invitation is not valid."));
@@ -114,6 +168,13 @@ export function Invite() {
   };
   if (err && !info) return <Frame title="Invitation not valid" lead={err} />;
   if (!info) return <Frame title="Loading your invitation" />;
+  if (info.ssoRequired) {
+    return (
+      <Frame title={`Join ${info.org}`} lead={`You were invited as ${info.email}. ${info.org} signs in through its identity provider; signing in finishes joining.`}>
+        <Button variant="primary" size="lg" className="w-full" onClick={() => window.location.assign(ssoStartUrl(info.email, "/app/devices?welcome=1"))}>Sign in with {info.org} SSO</Button>
+      </Frame>
+    );
+  }
   return (
     <Frame title={`Join ${info.org}`} lead={`You were invited as ${info.email}. Choose a password to finish.`}>
       <form onSubmit={submit} className="space-y-4">
