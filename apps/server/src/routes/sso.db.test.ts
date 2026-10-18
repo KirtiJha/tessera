@@ -31,7 +31,7 @@ class TestIdp {
   user: IdpUser = { sub: "u-1", email: "alice@acme-sso.test", name: "Alice" };
   tamper: { nonce?: string; aud?: string } = {};
   private codes = new Map<string, { nonce: string; challenge: string; redirect: string; user: IdpUser }>();
-  private server!: http.Server;
+  private server: http.Server | null = null;
   private key!: CryptoKey;
   private jwk!: Record<string, unknown>;
 
@@ -40,11 +40,12 @@ class TestIdp {
     this.key = privateKey as CryptoKey;
     this.jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256", use: "sig" };
     this.server = http.createServer((req, res) => void this.handle(req, res));
-    await new Promise<void>((r) => this.server.listen(0, "127.0.0.1", r));
-    this.url = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
+    const server = this.server;
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    this.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
   stop() {
-    this.server.close();
+    this.server?.close();
   }
 
   private json(res: http.ServerResponse, status: number, body: unknown) {
