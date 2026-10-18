@@ -74,6 +74,18 @@ Every session has a **Replay** tab: a scrubber over its whole run with cost, pro
 
 Only the session's owner, an approver on their team, or an admin can act; every action is written to the audit log.
 
+### Other agent runtimes (OpenTelemetry)
+
+Any runtime that exports OpenTelemetry traces with the GenAI semantic conventions can report without Tessera code on the machine. Issue a device token, then:
+
+```sh
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=$TESSERA/api/ingest/otlp/v1/traces
+OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer tsr_…"
+```
+
+`invoke_agent` spans become agents (nested by span parentage), `chat` spans carry `gen_ai.usage.*` tokens per model, `execute_tool` spans count tool calls and failures; `session.id` (or `gen_ai.conversation.id`, else the trace) groups spans into a session, and `vcs.*` attributes fill in the repository and branch. Gzip is accepted; protobuf is not. Traces are watch-only: answering, pausing and policy need a first-party reporter.
+
 ## Single sign-on
 
 Owners connect an OpenID Connect provider under **Single sign-on**: Okta, Microsoft Entra ID, Google Workspace, or any OIDC provider. People type their work email on the sign-in page and are sent to the provider when their domain uses SSO. Options: create accounts on first sign-in with a default role, and require SSO (members lose password sign-in; owners keep theirs as a way back in).

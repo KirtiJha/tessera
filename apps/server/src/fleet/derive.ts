@@ -1,9 +1,9 @@
 import type { AgentView, ModelPrice, SessionView } from "@tessera/contract";
-import { priceFor } from "./pricing.js";
+import { priceFor, totalUsage } from "./pricing.js";
 import type { SessionRecord } from "./types.js";
 
 export function deriveSession(rec: SessionRecord, table: ModelPrice[], now: number, staleAfterMs: number): SessionView {
-  const sessionPrice = priceFor(rec.usageByModel, table);
+  const sessionPrice = priceFor(totalUsage(rec.usageByModel, rec.agents), table);
   const agents: AgentView[] = rec.agents.map((a) => {
     const p = priceFor(a.usageByModel, table);
     return {

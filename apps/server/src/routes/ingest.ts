@@ -5,6 +5,8 @@ import { z } from "zod";
 import { deviceFromRequest } from "../auth/devices.js";
 import type { Fleet } from "../fleet/fleet.js";
 import { metrics } from "../metrics.js";
+import { foldTraces, OtlpSession, type OtlpTraces } from "../fleet/otlp.js";
+import { createGunzip } from "node:zlib";
 
 /**
  * Rate limits for reporter routes are per device token, never per IP: a whole
@@ -29,6 +31,18 @@ export function perDevice(max: number) {
 /** Routes reporters call. Every one needs a device token. */
 export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet }): Promise<void> {
   const { fleet } = opts;
+
+  // Accept protobuf bodies only to answer them with a useful hint.
+  app.addContentTypeParser("application/x-protobuf", { parseAs: "buffer", bodyLimit: 8 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+  // OTLP exporters may gzip their bodies.
+  app.addHook("preParsing", async (req, _reply, payload) => {
+    if (req.headers["content-encoding"] === "gzip") {
+      delete req.headers["content-encoding"];
+      delete req.headers["content-length"];
+      return payload.pipe(createGunzip());
+    }
+    return payload;
+  });
 
   app.addHook("preHandler", async (req, reply) => {
     const device = await deviceFromRequest(req);
@@ -59,6 +73,67 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
       if (err.statusCode) return reply.code(err.statusCode).send({ error: err.message });
       throw e;
     }
+  });
+
+  /**
+   * OpenTelemetry traces (OTLP/HTTP, JSON encoding) from any agent runtime that
+   * follows the GenAI semantic conventions. Point the runtime's exporter at
+   * <server>/api/ingest/otlp/v1/traces with the device token as a header.
+   */
+  const otlpSessions = new Map<string, OtlpSession>();
+  const otlpDevices = new Map<string, NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>>>();
+  // Spans arrive only when they finish, so a long model call would look silent.
+  // Keep each OTLP session alive while it has been active in the last five
+  // minutes, then end it.
+  const keepAlive = setInterval(() => {
+    void (async () => {
+      for (const [k, s] of otlpSessions) {
+        const device = otlpDevices.get(k);
+        if (!device) continue;
+        const idle = Date.now() - Date.parse(s.lastAt);
+        if (idle > 5 * 60_000) s.ended = true;
+        const parsed = parseReport(s.report());
+        if (parsed.ok) await fleet.ingest(parsed.report, device, undefined).catch(() => {});
+        if (s.ended) {
+          otlpSessions.delete(k);
+          otlpDevices.delete(k);
+        }
+      }
+    })();
+  }, 10_000);
+  keepAlive.unref();
+  app.addHook("onClose", async () => clearInterval(keepAlive));
+
+  app.post("/otlp/v1/traces", { bodyLimit: 8 * 1024 * 1024, config: perDevice(1200) }, async (req, reply) => {
+    const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
+    if (!String(req.headers["content-type"] ?? "").includes("json")) {
+      return reply.code(415).send({ error: "Send OTLP as JSON: set OTEL_EXPORTER_OTLP_PROTOCOL=http/json (protobuf is not accepted)." });
+    }
+    const byOrg = new Map<string, OtlpSession>();
+    for (const [k, v] of otlpSessions) if (k.startsWith(`${device.orgId}:`)) byOrg.set(k.slice(device.orgId.length + 1), v);
+    const folded = foldTraces((req.body ?? {}) as OtlpTraces, byOrg);
+    let rejected = folded.rejected;
+    const problems: string[] = [];
+    for (const s of folded.touched) {
+      otlpSessions.set(`${device.orgId}:${s.id}`, s);
+      otlpDevices.set(`${device.orgId}:${s.id}`, device);
+      const parsed = parseReport(s.report());
+      if (!parsed.ok) {
+        problems.push(parsed.error);
+        continue;
+      }
+      try {
+        await fleet.ingest(parsed.report, device, req.ip);
+        metrics.reports++;
+      } catch (e) {
+        const err = e as Error & { statusCode?: number };
+        if (!err.statusCode) throw e;
+        problems.push(`${s.id}: ${err.message}`);
+        rejected++;
+      }
+    }
+    // OTLP's partial-success response: the exporter logs it and does not retry.
+    return { partialSuccess: rejected || problems.length ? { rejectedSpans: rejected, errorMessage: problems.slice(0, 3).join("; ") || "too many spans in one request" } : {} };
   });
 
   /** Policy decision before a tool call. The reporter's PreToolUse hook asks and obeys. */

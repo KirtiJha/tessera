@@ -9,7 +9,7 @@ import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
 import { DEFAULT_DATA, dataSettingsFor, type DataSettings } from "./datasettings.js";
 import { activePolicy, callFrom, evaluatePolicy, recordDecisions, summaryOf } from "./policy.js";
-import { priceFor, priceTableFor } from "./pricing.js";
+import { priceFor, priceTableFor, totalUsage } from "./pricing.js";
 import { rollupDays, utcDay } from "./rollup.js";
 import { pumpAuditStreams } from "../compliance/stream.js";
 import * as store from "./store.js";
@@ -243,7 +243,8 @@ export class Fleet {
     }
 
     const table = await priceTableFor(orgId);
-    const cost = priceFor(rec.usageByModel, table).usd;
+    const usage = totalUsage(rec.usageByModel, rec.agents);
+    const cost = priceFor(usage, table).usd;
     const total = totalTokens(rec.tokens) + rec.agents.reduce((n, a) => n + totalTokens(a.tokens), 0);
     const key = `${orgId}:${s.id}`;
     const prevTotal = this.lastTokens.get(key) ?? (existing ? totalTokens(existing.tokens) + existing.agents.reduce((n, a) => n + totalTokens(a.tokens), 0) : total);
@@ -259,7 +260,7 @@ export class Fleet {
     const fresh = written.freshEventIds;
     if (askChanged) await withTx((c) => this.syncAsk(c, existing, rec, now));
     for (const a of changedAgents) sigs.set(a.id, JSON.stringify(a));
-    this.bufferSample(orgId, s.id, now, total, delta, cost, rec.usageByModel);
+    this.bufferSample(orgId, s.id, now, total, delta, cost, usage);
     await this.touchDevice(device.deviceId, rec.hostname, rec.machineId);
 
     // Keep ended sessions that already lingered out of the live set.
