@@ -290,6 +290,7 @@ export async function setControl(orgId: string, id: string, control: SessionReco
 export async function prune(retainSamplesDays: number, retainEventsDays: number, retainSessionsDays: number): Promise<void> {
   await pool.query("DELETE FROM samples WHERE ts < now() - ($1 || ' days')::interval", [String(retainSamplesDays)]);
   await pool.query("DELETE FROM events WHERE ts < now() - ($1 || ' days')::interval", [String(retainEventsDays)]);
+  await pool.query("DELETE FROM policy_decisions WHERE created_at < now() - ($1 || ' days')::interval", [String(retainEventsDays)]);
   await pool.query("DELETE FROM sessions WHERE COALESCE(ended_at, dropped_at) < now() - ($1 || ' days')::interval", [String(retainSessionsDays)]);
   await pool.query("DELETE FROM user_sessions WHERE expires_at < now()");
   await pool.query("DELETE FROM enrolment_codes WHERE expires_at < now() - interval '1 day'");

@@ -11,6 +11,7 @@ import { Budgets } from "./pages/app/Budgets";
 import { Devices } from "./pages/app/Devices";
 import { History } from "./pages/app/History";
 import { People } from "./pages/app/People";
+import { Policies } from "./pages/app/Policies";
 import { SessionPage } from "./pages/app/Session";
 import { Sso } from "./pages/app/Sso";
 import { Shell } from "./pages/app/Shell";
@@ -49,6 +50,7 @@ function App() {
           <Route element={<RequireAdmin />}>
             <Route path="people" element={<People />} />
             <Route path="budgets" element={<Budgets />} />
+            <Route path="policies" element={<Policies />} />
             <Route path="prices" element={<Prices />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="audit" element={<Audit />} />

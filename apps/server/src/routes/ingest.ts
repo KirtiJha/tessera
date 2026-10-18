@@ -1,4 +1,4 @@
-import { parseReport } from "@tessera/contract";
+import { DecideRequest, parseReport } from "@tessera/contract";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { sha256 } from "../auth/crypto.js";
 import { z } from "zod";
@@ -64,8 +64,7 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
   /** Policy decision before a tool call. The reporter's PreToolUse hook asks and obeys. */
   app.post("/decide", { config: perDevice(3000) }, async (req) => {
     const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
-    const body = z.object({ sessionId: z.string().max(128), tool: z.string().max(120) }).parse(req.body);
-    return fleet.decide(device.orgId, body.sessionId, body.tool);
+    return fleet.decide(device, DecideRequest.parse(req.body));
   });
 
   /** Long-poll for deliveries while the reporter waits on a prompt. */

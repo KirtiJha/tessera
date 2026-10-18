@@ -1,4 +1,4 @@
-import { clean, totalTokens, type ActivityEvent, type EventView, type FleetSnapshot, type Report, type ReportAck, type SessionView } from "@tessera/contract";
+import { clean, totalTokens, type DecideRequest, type DecideResponse, type ActivityEvent, type EventView, type FleetSnapshot, type Report, type ReportAck, type SessionView } from "@tessera/contract";
 import type { FastifyBaseLogger } from "fastify";
 import type { DevicePrincipal } from "../auth/devices.js";
 import { config } from "../config.js";
@@ -7,6 +7,7 @@ import { hasDelayedChannels, notify, resolveNotifications, type Notification } f
 import { applicable, budgetStatuses, recordBreach } from "./budgets.js";
 import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
+import { activePolicy, callFrom, evaluatePolicy, recordDecisions, summaryOf } from "./policy.js";
 import { priceFor, priceTableFor } from "./pricing.js";
 import * as store from "./store.js";
 import type { StreamHub } from "./stream.js";
@@ -343,15 +344,42 @@ export class Fleet {
     }
   }
 
-  /** Policy decision for a tool call: hard budgets with enforcement and paused sessions deny. */
-  async decide(orgId: string, sessionId: string, tool: string): Promise<{ decision: "allow" | "deny"; reason: string | null }> {
-    const rec = this.get(orgId, sessionId);
+  /**
+   * Decision for a tool call, in order: a paused session denies everything, a
+   * hard budget with enforcement denies, then the organisation's policy rules.
+   */
+  async decide(device: DevicePrincipal, req: DecideRequest): Promise<DecideResponse> {
+    const orgId = device.orgId;
+    const rec = this.get(orgId, req.sessionId);
     if (rec?.control.paused) return { decision: "deny", reason: `Session paused in Tessera${rec.control.reason ? `: ${rec.control.reason}` : ""}` };
-    const scope = rec ?? (await store.loadSession(orgId, sessionId));
-    if (!scope) return { decision: "allow", reason: null };
-    const hard = applicable(await budgetStatuses(orgId), scope).find((b) => b.level === "hard" && b.enforce);
-    if (hard) return { decision: "deny", reason: `Tessera budget exceeded (${hard.scopeType}, ${hard.window}): $${hard.spentUsd.toFixed(2)} of $${hard.hardUsd?.toFixed(2)}. Tool ${tool} refused.` };
-    return { decision: "allow", reason: null };
+    const scope = rec ?? (await store.loadSession(orgId, req.sessionId));
+    if (scope) {
+      const hard = applicable(await budgetStatuses(orgId), scope).find((b) => b.level === "hard" && b.enforce);
+      if (hard) return { decision: "deny", reason: `Tessera budget exceeded (${hard.scopeType}, ${hard.window}): $${hard.spentUsd.toFixed(2)} of $${hard.hardUsd?.toFixed(2)}. Tool ${req.tool} refused.` };
+    }
+    const policy = await activePolicy(orgId);
+    if (!policy.doc.rules.length) return { decision: "allow", reason: null };
+    const call = callFrom(req, scope ? { cwd: scope.cwd, model: scope.model, git: scope.git, teamId: scope.teamId ?? device.teamId } : { cwd: null, model: null, git: null, teamId: device.teamId });
+    const verdict = evaluatePolicy(policy.doc, call);
+    if (verdict.dryRun.length || (verdict.rule && verdict.rule.effect !== "allow")) {
+      void recordDecisions(orgId, req.sessionId, device.userId, call, verdict, policy.version).catch((e) => this.log.error({ err: e }, "policy decision record failed"));
+    }
+    const rule = verdict.rule;
+    if (!rule || rule.effect === "allow") return { decision: "allow", reason: null };
+    const reason = `${rule.effect === "deny" ? "Denied" : "Needs approval"} by Tessera policy "${rule.name}"${rule.reason ? `: ${rule.reason}` : "."}`;
+    if (rule.effect === "deny" && scope) {
+      const label = scope.name ?? scope.git?.repo ?? req.sessionId.slice(0, 8);
+      void notify(orgId, {
+        event: "policy.denied",
+        dedupeKey: `${orgId}:${req.sessionId}:policy:${rule.id}:${Math.floor(Date.now() / 600_000)}`,
+        title: `Policy "${rule.name}" denied a tool call in ${label}`,
+        text: summaryOf(call),
+        sessionId: req.sessionId,
+        fields: { Owner: scope.ownerName ?? device.userName, Rule: rule.name, ...(rule.reason ? { Reason: rule.reason } : {}) },
+        severity: "warning",
+      }, this.log).catch((e) => this.log.error({ err: e }, "policy notification failed"));
+    }
+    return { decision: rule.effect, reason };
   }
 
   // ---- deliveries ------------------------------------------------------

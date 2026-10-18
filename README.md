@@ -84,6 +84,16 @@ pnpm --filter @tessera/dev-idp start
 
 It signs in whoever you type, so it is for development only.
 
+## Policies
+
+Under **Policies**, admins write rules checked before every tool call on every enrolled machine. The first rule that matches decides:
+
+- **Deny** refuses the call; the engineer sees the rule's reason in the terminal.
+- **Ask** stops for approval; the prompt appears on the wall and in Slack, where an approver can allow it.
+- **Allow** lets the call through, as an exception above a broader rule.
+
+Rules match on tool (`Bash`, `Edit`, `mcp__github__*`), command (`terraform apply*`), path (`**/.env`, `infra/prod/**`), URL, model, repository, branch and team, all as globs. Any rule can run as a **dry run** first, recording who it would have stopped. The page tests a tool call against the rules as you edit them, lists recent decisions, and keeps every saved version so you can roll back. Templates cover the usual starting points: Terraform, secrets files, pushes to main, destructive shell commands, production MCP tools.
+
 ## Notifications and answering from Slack
 
 Under **Notifications**, an admin adds channels for the events that matter: a session waiting on someone, an agent failing, a context window overflowing, a budget limit, a policy denial, a session going silent.
