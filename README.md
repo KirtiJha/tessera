@@ -18,6 +18,12 @@ Self-hosted on PostgreSQL. Nothing leaves a session except what you turn on. Apa
 
 ## Run it
 
+### Try it on Render (free)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/KirtiJha/tessera)
+
+`render.yaml` creates the web service from the Dockerfile and a PostgreSQL database, generates `SECRET_KEY`, and uses the service's `onrender.com` address as `PUBLIC_URL`. Open the address when the deploy finishes and create your organisation. On the free plan the service sleeps after 15 idle minutes and the database is deleted after 30 days.
+
 ### With Docker
 
 ```sh
