@@ -1,15 +1,17 @@
 import type { SessionView } from "@tessera/contract";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search } from "lucide-react";
+import { Bookmark, LayoutGrid, Rows3, Search, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { BulkBar } from "../../components/BulkBar";
 import { KIND, SessionCard, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
-import { Empty, useToast } from "../../components/ui";
+import { Button, Empty, Input, Modal, useToast } from "../../components/ui";
+import { useDensity } from "../../components/Prefs";
 import { api, ApiError } from "../../lib/api";
 import { useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
 import { useAuth } from "../../lib/auth";
+import { healthFlags, healthLevel, medianCost, ticketOf, type HealthFlag } from "../../lib/health";
 import { usePref } from "../../lib/prefs";
 import { sessionKind, sessionLabel, useFleet, useSessions, type SessionKind } from "../../lib/fleet";
 import { ago, fmtTokens, fmtUsd } from "../../lib/format";
@@ -17,6 +19,19 @@ import { buildRows, CARD_GAP, columnsFor, estimateRow, moveFocus } from "../../l
 import { typingInField } from "./Shell";
 
 const ORDER: SessionKind[] = ["waiting", "running", "background", "stale", "done"];
+
+type Only = SessionKind | "all" | "mine" | "look";
+type Group = "state" | "person" | "repo" | "ticket";
+const GROUPS: [Group, string][] = [["state", "By state"], ["person", "By person"], ["repo", "By repo"], ["ticket", "By ticket"]];
+
+/** A named wall setup a person comes back to: filter, grouping and search. */
+export interface SavedView {
+  id: string;
+  name: string;
+  only: Only;
+  group: Group;
+  q: string;
+}
 
 function useNow(ms = 1000) {
   const [now, setNow] = useState(Date.now());
@@ -77,53 +92,97 @@ export function Wall() {
   const nav = useNavigate();
   const toast = useToast();
   // ?q= seeds the search (the command palette sends a person's name here); typing takes over from there.
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get("q") ?? "");
   useEffect(() => {
     if (params.has("q")) setQ(params.get("q") ?? "");
   }, [params]);
   const searchRef = useRef<HTMLInputElement>(null);
   // Remembered per browser; a stale or hand-edited value falls back to the default.
-  const [onlyPref, setOnly] = usePref<SessionKind | "all" | "mine">("wall.only", "all");
-  const only = onlyPref === "all" || onlyPref === "mine" || (ORDER as readonly string[]).includes(onlyPref) ? onlyPref : "all";
-  const [groupPref, setGroup] = usePref<"state" | "person">("wall.group", "state");
-  const group = groupPref === "person" ? "person" : "state";
+  const [onlyPref, setOnly] = usePref<Only>("wall.only", "all");
+  const only: Only = onlyPref === "all" || onlyPref === "mine" || onlyPref === "look" || (ORDER as readonly string[]).includes(onlyPref) ? onlyPref : "all";
+  const [groupPref, setGroup] = usePref<Group>("wall.group", "state");
+  const group: Group = GROUPS.some(([g]) => g === groupPref) ? groupPref : "state";
+  const [density, setDensity] = useDensity();
+  const [views, setViews] = usePref<SavedView[]>("wall.views", []);
+  const [naming, setNaming] = useState<string | null>(null);
   const firstSeen = useFirstSeen(sessions);
   const budget = dailyBudget(useBudgetStatuses());
+
+  // ?view=<id> applies a saved view (the command palette sends people here), then drops out of the URL.
+  useEffect(() => {
+    const id = params.get("view");
+    if (!id) return;
+    const v = views.find((x) => x.id === id);
+    if (v) {
+      setOnly(v.only);
+      setGroup(v.group);
+      setQ(v.q);
+    }
+    const p = new URLSearchParams(params);
+    p.delete("view");
+    setParams(p, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params, views]);
+
+  // Health is judged once per second for every live card, against the wall's median cost.
+  const health = useMemo(() => {
+    const live = sessions.filter((s) => s.status !== "ended");
+    const ctx = { now, medianCostUsd: medianCost(live) };
+    return new Map(sessions.map((s) => [s.id, healthFlags(s, ctx)] as const));
+  }, [sessions, now]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return sessions
-      .filter((s) => (only === "all" ? true : only === "mine" ? s.ownerId === me?.user.id : sessionKind(s) === only))
-      .filter((s) => !needle || [sessionLabel(s), s.ownerName, s.git?.branch, s.cwd, s.model, s.machine?.hostname].some((v) => v?.toLowerCase().includes(needle)))
+      .filter((s) => (only === "all" ? true : only === "mine" ? s.ownerId === me?.user.id : only === "look" ? healthLevel(health.get(s.id) ?? []) !== "fine" : sessionKind(s) === only))
+      .filter((s) => !needle || [sessionLabel(s), s.ownerName, s.git?.branch, s.cwd, s.model, s.machine?.hostname, ticketOf(s)].some((v) => v?.toLowerCase().includes(needle)))
       .sort((a, b) => ORDER.indexOf(sessionKind(a)) - ORDER.indexOf(sessionKind(b)) || Date.parse(b.startedAt) - Date.parse(a.startedAt) || a.id.localeCompare(b.id));
-  }, [sessions, q, only, me]);
+  }, [sessions, q, only, me, health]);
 
   const groups = useMemo(() => {
+    const keyOf = (s: SessionView) => (group === "state" ? sessionKind(s) : group === "person" ? (s.ownerName ?? "Unassigned") : group === "repo" ? (s.git?.repo ?? "No repository") : (ticketOf(s) ?? "No ticket"));
     const m = new Map<string, SessionView[]>();
     for (const s of filtered) {
-      const key = group === "state" ? sessionKind(s) : (s.ownerName ?? "Unassigned");
+      const key = keyOf(s);
       let list = m.get(key);
       if (!list) m.set(key, (list = []));
       list.push(s);
     }
-    return [...m.entries()].sort((a, b) => (group === "state" ? ORDER.indexOf(a[0] as SessionKind) - ORDER.indexOf(b[0] as SessionKind) : a[0].localeCompare(b[0])));
+    // States in their fixed order; everything else alphabetical with the "No …" bucket last.
+    return [...m.entries()].sort((a, b) => (group === "state" ? ORDER.indexOf(a[0] as SessionKind) - ORDER.indexOf(b[0] as SessionKind) : Number(a[0].startsWith("No ")) - Number(b[0].startsWith("No ")) || a[0].localeCompare(b[0])));
   }, [filtered, group]);
+
+  const isDefault = only === "all" && group === "state" && !q.trim();
+  const activeView = views.find((v) => v.only === only && v.group === group && v.q === q.trim());
+  const applyView = (v: SavedView) => {
+    setOnly(v.only);
+    setGroup(v.group);
+    setQ(v.q);
+  };
+  const saveView = () => {
+    const name = (naming ?? "").trim();
+    if (!name) return;
+    setViews([...views.filter((v) => v.name !== name), { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name, only, group, q: q.trim() }]);
+    setNaming(null);
+    toast(`Saved "${name}". It is in the palette too.`);
+  };
 
   // Every live count on the page comes from this one pass over the session list,
   // so the tiles, filters and top bar can never disagree.
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: sessions.length, mine: 0, agents: 0, live: 0 };
+    const c: Record<string, number> = { all: sessions.length, mine: 0, look: 0, agents: 0, live: 0 };
     for (const k of ORDER) c[k] = 0;
     for (const s of sessions) {
       const kind = sessionKind(s);
       c[kind]!++;
       if (kind !== "done") c.live!++;
       if (s.ownerId === me?.user.id) c.mine!++;
+      if (healthLevel(health.get(s.id) ?? []) !== "fine") c.look!++;
       for (const a of s.agents) if (a.status === "running" && a.kind !== "orchestrator") c.agents!++;
     }
     return c;
-  }, [sessions, me]);
+  }, [sessions, me, health]);
 
   // ---- virtualized list ----------------------------------------------------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -145,7 +204,7 @@ export function Wall() {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => estimateRow(rows[i]),
+    estimateSize: (i) => estimateRow(rows[i], density),
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 3,
   });
@@ -283,24 +342,47 @@ export function Wall() {
 
           <div className="mt-3 flex flex-wrap items-center gap-2 pb-3 sm:mt-5 sm:pb-4">
             <div className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-line bg-slate-1 p-1">
-              {(["all", "mine", ...ORDER] as const).map((k) => (
-                <button key={k} onClick={() => setOnly(k)} className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-[12.5px] ${only === k ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>
-                  {k !== "all" && k !== "mine" ? <StateShape kind={k} size={10} /> : null}
-                  {k === "all" ? "All" : k === "mine" ? "Mine" : KIND[k].label}
+              {(["all", "look", "mine", ...ORDER] as const).map((k) => (
+                <button key={k} onClick={() => setOnly(k)} aria-pressed={only === k} className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-[12.5px] ${only === k ? "bg-slate-3 text-snow" : k === "look" && counts.look ? "text-amber-400 hover:text-snow" : "text-fog hover:text-snow"}`} title={k === "look" ? "Sessions a rule has flagged: stuck, hitting policy, context nearly full, waiting too long, no progress, cost outlier" : undefined}>
+                  {k !== "all" && k !== "mine" && k !== "look" ? <StateShape kind={k} size={10} /> : null}
+                  {k === "all" ? "All" : k === "mine" ? "Mine" : k === "look" ? "Needs a look" : KIND[k].label}
                   <span className="text-[11px] text-ash">{counts[k] ?? 0}</span>
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-1 rounded-lg border border-line bg-slate-1 p-1 text-[12.5px]">
-              <button onClick={() => setGroup("state")} className={`rounded-md px-2.5 py-1 ${group === "state" ? "bg-slate-3 text-snow" : "text-fog"}`}>By state</button>
-              <button onClick={() => setGroup("person")} className={`rounded-md px-2.5 py-1 ${group === "person" ? "bg-slate-3 text-snow" : "text-fog"}`}>By person</button>
+            <div className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-line bg-slate-1 p-1 text-[12.5px]">
+              {GROUPS.map(([g, label]) => <button key={g} onClick={() => setGroup(g)} aria-pressed={group === g} className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 ${group === g ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>{label}</button>)}
             </div>
+            <button type="button" onClick={() => setDensity(density === "compact" ? "comfortable" : "compact")} aria-label={density === "compact" ? "Comfortable cards" : "Compact cards"} title={density === "compact" ? "Comfortable cards" : "Compact cards"} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-slate-1 text-fog hover:text-snow">
+              {density === "compact" ? <LayoutGrid size={15} /> : <Rows3 size={15} />}
+            </button>
             <label className="relative w-full sm:ml-auto sm:w-auto">
               <Search size={14} className="absolute left-2.5 top-2.5 text-fog" />
               <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (e.currentTarget.value ? setQ("") : e.currentTarget.blur())} placeholder="Filter by name, branch, person, model…" className="h-9 w-full rounded-lg sm:w-72 border border-line bg-slate-1 pl-8 pr-3 text-[13px] text-snow placeholder:text-ash focus:border-teal-400 focus:outline-none" />
             </label>
           </div>
+          {views.length || !isDefault ? (
+            <div className="flex flex-wrap items-center gap-1.5 pb-3 text-[12px]">
+              <Bookmark size={13} className="text-ash" />
+              {views.map((v) => (
+                <span key={v.id} className={`inline-flex items-center overflow-hidden rounded-md border ${activeView?.id === v.id ? "border-teal-700 bg-teal-600/10 text-snow" : "border-line bg-slate-1 text-mist"}`}>
+                  <button type="button" onClick={() => applyView(v)} className="px-2 py-1 hover:text-snow">{v.name}</button>
+                  <button type="button" onClick={() => setViews(views.filter((x) => x.id !== v.id))} aria-label={`Remove view ${v.name}`} className="border-l border-line px-1.5 py-1 text-ash hover:text-rose-400"><X size={11} /></button>
+                </span>
+              ))}
+              {!isDefault && !activeView ? <button type="button" onClick={() => setNaming("")} className="rounded-md border border-dashed border-line-2 px-2 py-1 text-fog hover:text-snow">Save this view…</button> : null}
+              {!isDefault ? <button type="button" onClick={() => { setOnly("all"); setGroup("state"); setQ(""); }} className="ml-1 text-fog hover:text-snow">Reset</button> : null}
+            </div>
+          ) : null}
         </div>
+
+        <Modal open={naming !== null} onClose={() => setNaming(null)} title="Save this view" width={420}>
+          <p className="text-[13px] text-fog">Filter, grouping and search, remembered in this browser and offered in the command palette.</p>
+          <form onSubmit={(e) => { e.preventDefault(); saveView(); }} className="mt-3 flex gap-2">
+            <Input autoFocus value={naming ?? ""} onChange={(e) => setNaming(e.target.value)} placeholder="Payments, waiting first" aria-label="View name" />
+            <Button type="submit" variant="primary" disabled={!(naming ?? "").trim()}>Save</Button>
+          </form>
+        </Modal>
 
         <div ref={scrollRef} className={`pane min-h-0 flex-1 overflow-y-auto border-t border-line px-3 pt-3 sm:px-5 ${selected.size ? "pb-24" : "pb-5"}`}>
           {sessions.length === 0 ? (
@@ -326,7 +408,7 @@ export function Wall() {
                       <div className="grid pb-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: CARD_GAP }}>
                         {row.items.map((s) => {
                           const first = firstSeen.get(s.id) ?? 0;
-                          return <SessionCard key={s.id} s={s} now={now} isNew={first > 0 && now - first < 1500} focused={focusId === s.id} selected={selected.has(s.id)} selecting={selected.size > 0} onSelect={toggleSelect} onFocus={setFocusId} />;
+                          return <SessionCard key={s.id} s={s} now={now} isNew={first > 0 && now - first < 1500} focused={focusId === s.id} selected={selected.has(s.id)} selecting={selected.size > 0} onSelect={toggleSelect} onFocus={setFocusId} health={health.get(s.id) as HealthFlag[] | undefined} compact={density === "compact"} />;
                         })}
                       </div>
                     )}

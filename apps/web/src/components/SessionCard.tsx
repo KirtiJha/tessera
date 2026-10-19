@@ -4,6 +4,7 @@ import { memo } from "react";
 import { RiskChips } from "./Approval";
 import { Link } from "react-router-dom";
 import { sessionKind, sessionLabel, type SessionKind } from "../lib/fleet";
+import type { HealthFlag } from "../lib/health";
 import { ago, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../lib/format";
 
 export const KIND: Record<SessionKind, { color: string; bg: string; label: string }> = {
@@ -72,7 +73,7 @@ export function AgentStrip({ s }: { s: SessionView }) {
 /** Runtimes other than Claude Code get a label; Claude Code is the default and needs none. */
 const RUNTIME: Record<string, string> = { "codex-cli": "Codex", "gemini-cli": "Gemini", cursor: "Cursor", custom: "OTel" };
 
-export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = false, selected = false, selecting = false, onSelect, onFocus }: { s: SessionView; now: number; isNew?: boolean; focused?: boolean; selected?: boolean; selecting?: boolean; onSelect?: (id: string) => void; onFocus?: (id: string) => void }) {
+export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = false, selected = false, selecting = false, onSelect, onFocus, health = [], compact = false }: { s: SessionView; now: number; isNew?: boolean; focused?: boolean; selected?: boolean; selecting?: boolean; onSelect?: (id: string) => void; onFocus?: (id: string) => void; health?: HealthFlag[]; compact?: boolean }) {
   const kind = sessionKind(s);
   const k = KIND[kind];
   const plan = s.plan?.steps ?? [];
@@ -109,11 +110,15 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
 
           <div className="mt-3 flex items-center gap-2 text-[12px]" style={{ color: k.color }}>
             <span className="font-medium">{kind === "waiting" ? (s.openAsk ? { question: "Has a question", plan: "Plan needs approval", permission: "Permission needed" }[s.openAsk.kind] : "Waiting for input") : kind === "stale" ? `Silent for ${ago(s.lastSeenAt, now)}` : kind === "done" ? `Ended${s.endReason ? ` · ${s.endReason}` : ""}` : kind === "background" ? "Idle on background work" : runningAgents ? `${runningAgents} agent${runningAgents > 1 ? "s" : ""} working` : "Working"}</span>
-            {failed ? <span className="ml-auto text-rose-400">{failed} failed</span> : null}
+            {health.length ? (
+              <span className={`ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${health[0]!.level === "attention" ? "bg-rose-600/15 text-rose-400" : "bg-amber-400/15 text-amber-400"}`} title={health.map((h) => `${h.label}: ${h.detail}`).join("\n")} data-health={health[0]!.level}>
+                {health[0]!.label}{health.length > 1 ? ` +${health.length - 1}` : ""}
+              </span>
+            ) : failed ? <span className="ml-auto text-rose-400">{failed} failed</span> : null}
           </div>
-          {s.openAsk ? <div className="mt-1.5 line-clamp-2 text-[12.5px] leading-snug text-mist">{s.openAsk.tool ? <span className="font-mono text-[11.5px]">{s.openAsk.tool} · </span> : null}{s.openAsk.prompt}</div> : null}
+          {s.openAsk ? <div className={`mt-1.5 text-[12.5px] leading-snug text-mist ${compact ? "line-clamp-1" : "line-clamp-2"}`}>{s.openAsk.tool ? <span className="font-mono text-[11.5px]">{s.openAsk.tool} · </span> : null}{s.openAsk.prompt}</div> : null}
           {risk.length ? <div className="mt-1.5"><RiskChips flags={risk} compact /></div> : null}
-          {current && !s.openAsk ? (
+          {current && !s.openAsk && !compact ? (
             <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-mist">
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${current.status === "running" ? "bg-teal-400 dot-live" : current.status === "failed" ? "bg-rose-400" : "bg-slate-3"}`} />
               <span className="truncate font-mono text-[11.5px]" title={current.summary}>{current.status === "running" ? "" : current.status === "failed" ? "failed: " : "last: "}{current.summary}</span>
@@ -123,7 +128,7 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
 
         <div className="mt-3 space-y-2 px-4">
           {s.context ? <ContextBar used={s.context.used} window={s.context.window} blowouts={s.blowouts} /> : <div className="text-[11.5px] text-ash">Context not reported</div>}
-          <div className="flex items-center justify-between">
+          <div className={`flex items-center justify-between ${compact ? "hidden" : ""}`}>
             <AgentStrip s={s} />
             <span className="flex items-center gap-2 text-[11.5px] text-fog">
               {s.filesChanged.length ? <span title={`${s.filesChanged.length} files changed, uncommitted`}>{s.filesChanged.length} file{s.filesChanged.length === 1 ? "" : "s"} <span className="text-teal-300">+{s.filesChanged.reduce((n, f) => n + f.added, 0)}</span> <span className="text-rose-400">−{s.filesChanged.reduce((n, f) => n + f.removed, 0)}</span></span> : null}
@@ -132,8 +137,8 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 divide-x divide-line border-t border-line text-center" style={{ background: k.bg }}>
-          <div className="py-2"><div className="text-[13px] font-semibold text-snow">{fmtUsd(s.costUsd)}</div><div className="text-[10.5px] text-fog">{s.unpricedModels.length ? "partly unpriced" : "est. cost"}</div></div>
+        <div className={`${compact ? "mt-2" : "mt-3"} grid grid-cols-3 divide-x divide-line border-t border-line text-center`} style={{ background: k.bg }}>
+          <div className={compact ? "py-1.5" : "py-2"}><div className="text-[13px] font-semibold text-snow">{fmtUsd(s.costUsd)}</div><div className="text-[10.5px] text-fog">{s.unpricedModels.length ? "partly unpriced" : "est. cost"}</div></div>
           <div className="py-2"><div className="text-[13px] font-semibold text-snow">{fmtTokens(s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite)}</div><div className="text-[10.5px] text-fog">tokens</div></div>
           <div className="py-2"><div className="text-[13px] font-semibold text-snow">{fmtDuration(elapsed)}</div><div className="text-[10.5px] text-fog">elapsed</div></div>
         </div>

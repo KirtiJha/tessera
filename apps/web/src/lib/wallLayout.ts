@@ -8,6 +8,8 @@ export const CARD_MIN_WIDTH = 330;
 export const CARD_GAP = 12;
 export const HEADER_HEIGHT = 40;
 export const CARD_ROW_HEIGHT = 250;
+export const COMPACT_ROW_HEIGHT = 186;
+export type Density = "comfortable" | "compact";
 
 export type WallRow<T> =
   | { kind: "header"; key: string; group: string; count: number }
@@ -32,8 +34,8 @@ export function buildRows<T extends { id: string }>(groups: [string, T[]][], col
   return rows;
 }
 
-export function estimateRow<T>(row: WallRow<T> | undefined): number {
-  return row?.kind === "header" ? HEADER_HEIGHT : CARD_ROW_HEIGHT;
+export function estimateRow<T>(row: WallRow<T> | undefined, density: Density = "comfortable"): number {
+  return row?.kind === "header" ? HEADER_HEIGHT : density === "compact" ? COMPACT_ROW_HEIGHT : CARD_ROW_HEIGHT;
 }
 
 /**

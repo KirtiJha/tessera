@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { NavWidthPicker, ThemePicker } from "../../components/Prefs";
+import { DensityPicker, NavWidthPicker, ThemePicker } from "../../components/Prefs";
 import { Button, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
@@ -168,6 +168,11 @@ export function Account() {
             <div className="mb-1.5 text-[13px] font-medium text-mist">Navigation</div>
             <NavWidthPicker />
             <p className="mt-1.5 text-[12px] text-fog">On wide screens. Phones always use the slide-in menu.</p>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[13px] font-medium text-mist">Wall density</div>
+            <DensityPicker />
+            <p className="mt-1.5 text-[12px] text-fog">Compact cards drop the agent strip and the current call, and fit about a third more on a screen.</p>
           </div>
         </div>
       </Panel>

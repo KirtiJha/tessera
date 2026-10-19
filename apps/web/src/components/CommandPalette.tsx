@@ -1,9 +1,10 @@
-import { Activity, BarChart3, BellRing, ChevronsLeft, ChevronsRight, Clock, CornerDownLeft, Database, History, KeyRound, KeySquare, Laptop, LogOut, Monitor, Moon, PiggyBank, ScrollText, Search, Settings, ShieldCheck, Sun, Tag, User, Users } from "lucide-react";
+import { Activity, BarChart3, BellRing, Bookmark, ChevronsLeft, ChevronsRight, Clock, CornerDownLeft, Database, History, KeyRound, KeySquare, Laptop, LogOut, Monitor, Moon, PiggyBank, ScrollText, Search, Settings, ShieldCheck, Sun, Tag, User, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { readPref } from "../lib/prefs";
 import { sessionKind, sessionLabel, useSessions } from "../lib/fleet";
 import { fmtDate, modelShort } from "../lib/format";
 import { rank } from "../lib/search";
@@ -109,6 +110,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       });
     const pages = rank(q, PAGES.filter((p) => !p.admin || isAdmin), (p) => [p.label, p.words]);
     if (pages.length) out.push({ label: "Pages", items: pages.map((p) => ({ id: `p:${p.to}`, title: p.label, icon: <p.icon size={14} className="text-fog" />, run: () => go(p.to) })) });
+    // Saved wall views live in this browser's preferences.
+    const views = rank(q, readPref<{ id: string; name: string; only: string; group: string; q: string }[]>("wall.views", []), (v) => [v.name, v.q, v.only, v.group], 6);
+    if (views.length) out.push({ label: "Wall views", items: views.map((v) => ({ id: `v:${v.id}`, title: v.name, subtitle: [v.only !== "all" ? v.only : null, v.group !== "state" ? `by ${v.group}` : null, v.q ? `“${v.q}”` : null].filter(Boolean).join(" · ") || "everything, by state", icon: <Bookmark size={14} className="text-fog" />, run: () => go(`/app?view=${encodeURIComponent(v.id)}`) })) });
     if (q.trim() && people?.length) {
       const hits = rank(q, people, (p) => [p.name, p.team, p.role], 5);
       if (hits.length) out.push({ label: "People", items: hits.map((p) => ({ id: `u:${p.id}`, title: p.name, subtitle: [p.role, p.team].filter(Boolean).join(" · "), icon: <User size={14} className="text-fog" />, run: () => go(`/app?q=${encodeURIComponent(p.name)}`) })) });

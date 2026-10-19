@@ -303,3 +303,50 @@ test("history filters and sorts from the URL, the audit log filters by action, a
   await page.getByRole("dialog", { name: "Delete this budget?" }).getByRole("button", { name: "Delete" }).click();
   await expect(row).toBeHidden();
 });
+
+test("the wall flags a session that needs a look, groups by repo, goes compact, and remembers a saved view", async () => {
+  // Three failures in the last five tool calls: the stuck rule.
+  const stuckId = `${sessionId}-stuck`;
+  const t = (s: number) => new Date(Date.now() - s * 1000).toISOString();
+  const r = await report(page.request, {
+    id: stuckId, name: "Flaky deploy script", status: "running",
+    activity: [
+      { id: "k1", ts: t(50), tool: "Bash", summary: "Bash(./deploy.sh)", status: "failed", error: "exit 1", endedAt: t(49) },
+      { id: "k2", ts: t(40), tool: "Bash", summary: "Bash(./deploy.sh)", status: "ok", endedAt: t(39) },
+      { id: "k3", ts: t(30), tool: "Bash", summary: "Bash(./deploy.sh)", status: "failed", error: "exit 1", endedAt: t(29) },
+      { id: "k4", ts: t(20), tool: "Bash", summary: "Bash(./deploy.sh)", status: "failed", error: "exit 1", endedAt: t(19) },
+      { id: "k5", ts: t(10), tool: "Read", summary: "Read(deploy.sh)", status: "running" },
+    ],
+  });
+  expect(r.ok()).toBeTruthy();
+  await page.goto("/app");
+  const card = page.locator("a", { hasText: "Flaky deploy script" }).first();
+  await expect(card.locator("[data-health=attention]")).toHaveText(/Stuck/);
+  // "Needs a look" keeps only flagged sessions.
+  await page.getByRole("button", { name: /^Needs a look \d+$/ }).click();
+  await expect(card).toBeVisible();
+  await expect(page.locator("a", { hasText: "Bulk approve me" })).toBeHidden();
+  // Group by repository: the header names the repo.
+  await page.getByRole("button", { name: "By repo", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /acme\/payments/ })).toBeVisible();
+  // Compact cards drop the agent strip.
+  await page.getByRole("button", { name: "Compact cards" }).click();
+  await expect(page.getByRole("button", { name: "Comfortable cards" })).toBeVisible();
+  await page.getByRole("button", { name: "Comfortable cards" }).click();
+  // Save the view; it survives a reload and reapplies the filter and grouping.
+  await page.getByRole("button", { name: "Save this view…" }).click();
+  await page.getByLabel("View name").fill("Needs a look, by repo");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
+  await expect(page.getByRole("button", { name: "Needs a look, by repo", exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Needs a look, by repo", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Needs a look \d+$/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "By repo", exact: true })).toHaveAttribute("aria-pressed", "true");
+  // And it is in the palette.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Search" }).fill("by repo");
+  await expect(page.getByRole("listbox").getByRole("option", { name: /Needs a look, by repo/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Reset" }).click();
+});
