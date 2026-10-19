@@ -8,6 +8,7 @@ import { KIND, SessionCard, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
 import { Empty, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
+import { useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
 import { useAuth } from "../../lib/auth";
 import { usePref } from "../../lib/prefs";
 import { sessionKind, sessionLabel, useFleet, useSessions, type SessionKind } from "../../lib/fleet";
@@ -26,19 +27,32 @@ function useNow(ms = 1000) {
   return now;
 }
 
-function Kpi({ label, short, value, sub, series, color }: { label: string; short: string; value: string; sub?: string; series?: number[]; color?: string }) {
+function Kpi({ label, short, value, sub, subTone = "text-fog", series, color, bar }: { label: string; short: string; value: string; sub?: string; subTone?: string; series?: number[]; color?: string; bar?: { pct: number; tone: string } }) {
   return (
     <div className="min-w-0 rounded-xl border border-line bg-slate-1 px-2.5 py-2 sm:px-4 sm:py-3">
       <div className="truncate text-[11px] text-fog sm:text-[12px]"><span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span></div>
       <div className="mt-0.5 flex items-end justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="font-display text-[18px] font-semibold sm:text-[26px] leading-none tracking-tight text-snow">{value}</div>
-          {sub ? <div className="mt-1 hidden text-[11.5px] text-fog sm:block">{sub}</div> : null}
+          {sub ? <div className={`mt-1 hidden truncate text-[11.5px] sm:block ${subTone}`}>{sub}</div> : null}
         </div>
         {series ? <div className="hidden w-28 self-end sm:block"><Sparkline values={series} color={color} height={30} /></div> : null}
       </div>
+      {bar ? (
+        <div className="mt-2 hidden h-1.5 overflow-hidden rounded-full bg-slate-3 sm:block" role="progressbar" aria-valuenow={Math.round(bar.pct)} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+          <div className={`h-full rounded-full ${bar.tone}`} style={{ width: `${Math.min(100, bar.pct)}%` }} />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/** Today's spend against the organisation's daily budget, for the cost tile: the hard limit if there is one, else the soft. */
+function dailyBudget(budgets: BudgetStatus[]): { limit: number; pct: number; level: BudgetStatus["level"]; enforce: boolean } | null {
+  const b = budgets.find((x) => x.scopeType === "org" && x.window === "daily" && (x.hardUsd ?? x.softUsd) !== null);
+  if (!b) return null;
+  const limit = (b.hardUsd ?? b.softUsd)!;
+  return { limit, pct: limit > 0 ? (b.spentUsd / limit) * 100 : 0, level: b.level, enforce: b.enforce };
 }
 
 /** Sessions that appeared after the first snapshot, with when they appeared, so only they animate in. */
@@ -75,6 +89,7 @@ export function Wall() {
   const [groupPref, setGroup] = usePref<"state" | "person">("wall.group", "state");
   const group = groupPref === "person" ? "person" : "state";
   const firstSeen = useFirstSeen(sessions);
+  const budget = dailyBudget(useBudgetStatuses());
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -251,10 +266,19 @@ export function Wall() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="shrink-0 px-3 pt-3 sm:px-5 sm:pt-5">
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-4">
-            <Kpi label="Live sessions" short="Live" value={String(counts.live ?? 0)} sub={`${counts.agents ?? 0} agents working`} />
+            <Kpi label="Live sessions" short="Live" value={String(counts.live ?? 0)} sub={`${counts.agents ?? 0} agents working${kpis?.failedAgentsToday ? ` · ${kpis.failedAgentsToday} failed today` : ""}`} subTone={kpis?.failedAgentsToday ? "text-rose-400" : "text-fog"} />
             <Kpi label="Waiting on someone" short="Waiting" value={String(counts.waiting ?? 0)} sub={kpis?.blowoutsToday ? `${kpis.blowoutsToday} context blowouts today` : "no blowouts today"} />
             <Kpi label="Tokens per minute" short="Tok/min" value={kpis ? fmtTokens(kpis.tokensPerMinute.at(-1) ?? 0) : "—"} series={kpis?.tokensPerMinute} />
-            <Kpi label="Estimated cost today" short="Today" value={kpis ? fmtUsd(kpis.costTodayUsd) : "—"} sub={kpis?.unpricedSessions ? `${kpis.unpricedSessions} session${kpis.unpricedSessions > 1 ? "s" : ""} with unpriced models` : "from tokens × your prices"} series={kpis?.costPerMinuteUsd} color="var(--color-amber-400)" />
+            <Kpi
+              label="Estimated cost today"
+              short="Today"
+              value={kpis ? fmtUsd(kpis.costTodayUsd) : "—"}
+              sub={budget ? `${Math.round(budget.pct)}% of ${fmtUsd(budget.limit, Number.isInteger(budget.limit) ? 0 : 2)} daily limit${budget.level === "hard" ? (budget.enforce ? " · over, calls denied" : " · over") : budget.level === "soft" ? " · over soft" : ""}` : kpis?.unpricedSessions ? `${kpis.unpricedSessions} session${kpis.unpricedSessions > 1 ? "s" : ""} with unpriced models` : "from tokens × your prices"}
+              subTone={budget?.level === "hard" ? "text-rose-400" : budget?.level === "soft" ? "text-amber-400" : "text-fog"}
+              series={kpis?.costPerMinuteUsd}
+              color="var(--color-amber-400)"
+              bar={budget ? { pct: budget.pct, tone: budget.level === "hard" ? "bg-rose-400" : budget.level === "soft" || budget.pct >= 75 ? "bg-amber-400" : "bg-teal-400" } : undefined}
+            />
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 pb-3 sm:mt-5 sm:pb-4">

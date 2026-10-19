@@ -30,6 +30,21 @@ export interface BudgetStatus {
   enforce: boolean;
   spentUsd: number;
   level: "ok" | "soft" | "hard";
+  /** When the current window began (ISO). */
+  windowStart: string;
+}
+
+const WINDOW_MS: Record<BudgetStatus["window"], number> = { daily: 86_400_000, weekly: 7 * 86_400_000, monthly: 30 * 86_400_000 };
+
+/** Where a budget's window ends and, at the pace so far, where spend will land when it does. */
+export function budgetOutlook(b: BudgetStatus, now = Date.now()): { endsAt: number; projectedUsd: number; limit: number | null; pct: number } {
+  const start = Date.parse(b.windowStart);
+  const end = b.window === "monthly" ? new Date(new Date(start).setMonth(new Date(start).getMonth() + 1)).getTime() : start + WINDOW_MS[b.window];
+  // At least a minute of elapsed time, so the first minute of a window does not project to infinity.
+  const elapsed = Math.max(60_000, Math.min(now - start, end - start));
+  const projectedUsd = b.spentUsd * ((end - start) / elapsed);
+  const limit = b.hardUsd ?? b.softUsd;
+  return { endsAt: end, projectedUsd, limit, pct: limit ? (b.spentUsd / limit) * 100 : 0 };
 }
 
 const ASK = { question: "Has a question", plan: "Plan needs approval", permission: "Permission needed" } as const;
@@ -82,7 +97,7 @@ export function attentionItems(sessions: SessionView[], budgets: BudgetStatus[])
 }
 
 /** Budget statuses, refreshed every minute and whenever `refreshKey` changes (the bell opening). */
-function useBudgets(refreshKey: number): BudgetStatus[] {
+export function useBudgetStatuses(refreshKey = 0): BudgetStatus[] {
   const [budgets, setBudgets] = useState<BudgetStatus[]>([]);
   useEffect(() => {
     let alive = true;
@@ -99,6 +114,6 @@ function useBudgets(refreshKey: number): BudgetStatus[] {
 
 export function useAttention(refreshKey = 0): AttentionItem[] {
   const sessions = useSessions();
-  const budgets = useBudgets(refreshKey);
+  const budgets = useBudgetStatuses(refreshKey);
   return useMemo(() => attentionItems(sessions, budgets), [sessions, budgets]);
 }

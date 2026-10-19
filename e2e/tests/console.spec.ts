@@ -274,6 +274,13 @@ test("history filters and sorts from the URL, the audit log filters by action, a
   // Deleting a budget asks in the app, not with the browser's dialog: Cancel keeps it, Delete removes it.
   const b = await page.request.put("/api/admin/budgets", { headers: W, data: { scopeType: "org", scopeId: null, window: "daily", softUsd: 1234.5, hardUsd: null, enforce: false } });
   expect(b.ok()).toBeTruthy();
+  // The wall's cost tile and Analytics both show spend against that budget.
+  await page.goto("/app");
+  await expect(page.getByText(/of \$1,234\.50 daily limit/)).toBeVisible();
+  await page.goto("/app/analytics");
+  const outlook = page.locator("section", { has: page.getByRole("heading", { name: "Budgets" }) });
+  await expect(outlook).toContainText("Whole organisation · daily");
+  await expect(outlook).toContainText("soft $1,234.50");
   await page.goto("/app/budgets");
   const row = page.locator("div.rounded-lg", { hasText: "soft $1,234.50" }).first(); // budgets are cards, not table rows
   await expect(row).toBeVisible();

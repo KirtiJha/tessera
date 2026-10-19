@@ -9,6 +9,8 @@ export interface Budget {
   softUsd: number | null;
   hardUsd: number | null;
   enforce: boolean;
+  /** The team's or person's name for a scoped budget; null for the organisation. */
+  scopeName: string | null;
 }
 
 export interface BudgetStatus extends Budget {
@@ -30,7 +32,12 @@ export function invalidateBudgets(orgId: string): void {
 
 export async function listBudgets(orgId: string): Promise<Budget[]> {
   const r = await pool.query(
-    `SELECT id, org_id, scope_type, scope_id, "window", soft_usd, hard_usd, enforce FROM budgets WHERE org_id = $1 ORDER BY scope_type, "window"`,
+    `SELECT b.id, b.org_id, b.scope_type, b.scope_id, b."window", b.soft_usd, b.hard_usd, b.enforce,
+            CASE b.scope_type WHEN 'team' THEN t.name WHEN 'user' THEN u.name END AS scope_name
+       FROM budgets b
+       LEFT JOIN teams t ON b.scope_type = 'team' AND t.id = b.scope_id AND t.org_id = b.org_id
+       LEFT JOIN users u ON b.scope_type = 'user' AND u.id = b.scope_id AND u.org_id = b.org_id
+      WHERE b.org_id = $1 ORDER BY b.scope_type, b."window"`,
     [orgId],
   );
   return r.rows.map((b) => ({
@@ -42,6 +49,7 @@ export async function listBudgets(orgId: string): Promise<Budget[]> {
     softUsd: b.soft_usd,
     hardUsd: b.hard_usd,
     enforce: b.enforce,
+    scopeName: b.scope_name ?? null,
   }));
 }
 

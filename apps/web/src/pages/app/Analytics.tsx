@@ -1,8 +1,10 @@
 import { Download } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarList, ColumnChart } from "../../components/ColumnChart";
+import { Link } from "react-router-dom";
 import { Button, Empty, Field, Input, Panel, Select, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
+import { budgetOutlook, useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
 import { useAuth } from "../../lib/auth";
 import { fmtDuration, fmtTokens, fmtUsd, modelShort } from "../../lib/format";
 
@@ -97,8 +99,46 @@ function AllocationSettings({ settings, onSaved }: { settings: Settings; onSaved
 }
 
 /** Spend over time, allocated to teams, cost centres, tickets and tags; a forecast; chargeback export. */
+function BudgetOutlook({ budgets, isAdmin }: { budgets: BudgetStatus[]; isAdmin: boolean }) {
+  if (!budgets.length) {
+    return (
+      <Panel title="Budgets" className="mt-4">
+        <p className="text-[13px] text-fog">No budgets yet. {isAdmin ? <>Set a soft limit to be told, or a hard limit with enforcement to stop new tool calls, under <Link to="/app/budgets" className="text-teal-300 hover:underline">Budgets</Link>.</> : "An admin can set them under Budgets."}</p>
+      </Panel>
+    );
+  }
+  return (
+    <Panel title="Budgets" action={isAdmin ? <Link to="/app/budgets" className="text-[12.5px] text-fog hover:text-snow">Manage</Link> : undefined} className="mt-4">
+      <ul className="divide-y divide-line">
+        {budgets.map((b) => {
+          const o = budgetOutlook(b);
+          const who = b.scopeType === "org" ? "Whole organisation" : (b.scopeName ?? (b.scopeType === "team" ? "A team" : "A person"));
+          const tone = b.level === "hard" ? "text-rose-400" : b.level === "soft" ? "text-amber-400" : o.limit && o.projectedUsd > o.limit ? "text-amber-400" : "text-teal-300";
+          const bar = b.level === "hard" ? "bg-rose-400" : b.level === "soft" || o.pct >= 75 ? "bg-amber-400" : "bg-teal-400";
+          const outlook = !o.limit ? "no limit set" : b.level === "hard" ? `over the hard limit${b.enforce ? " · new tool calls are denied" : ""}` : b.level === "soft" ? "over the soft limit" : o.projectedUsd > o.limit ? `on course for ${fmtUsd(o.projectedUsd)} by the end of the ${b.window === "daily" ? "day" : b.window === "weekly" ? "week" : "month"}` : `on course for ${fmtUsd(o.projectedUsd)}, within the limit`;
+          return (
+            <li key={b.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 first:pt-0 last:pb-0">
+              <div className="min-w-[12rem] flex-1">
+                <div className="text-[13.5px] font-medium text-snow">{who} <span className="font-normal text-fog">· {b.window}</span></div>
+                <div className={`text-[12px] ${tone}`}>{outlook}</div>
+              </div>
+              <div className="w-full sm:w-72">
+                <div className="flex items-center justify-between text-[12px] text-mist"><span>{fmtUsd(b.spentUsd)} spent</span><span className="text-fog">{b.softUsd !== null ? `soft ${fmtUsd(b.softUsd)}` : ""}{b.softUsd !== null && b.hardUsd !== null ? " · " : ""}{b.hardUsd !== null ? `hard ${fmtUsd(b.hardUsd)}` : ""}</span></div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-3" role="progressbar" aria-valuenow={Math.round(Math.min(100, o.pct))} aria-valuemin={0} aria-valuemax={100} aria-label={`${who} ${b.window} budget`}>
+                  <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.min(100, o.pct)}%` }} />
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Panel>
+  );
+}
+
 export function Analytics() {
   const { me } = useAuth();
+  const budgets = useBudgetStatuses();
   const isAdmin = me?.user.role === "admin" || me?.user.role === "owner";
   const [range, setRange] = useState("30");
   const [groupBy, setGroupBy] = useState("team");
@@ -160,6 +200,8 @@ export function Analytics() {
             <Tile label="Sessions" value={t!.sessions.toLocaleString()} sub={`${t!.people} ${t!.people === 1 ? "person" : "people"} · ${fmtTokens(t!.tokens)} tokens`} />
             <Tile label="Prompts answered in Tessera" value={t!.asks ? `${Math.round((t!.answeredInTessera / t!.asks) * 100)}%` : "—"} sub={t!.asks ? `${t!.answeredInTessera} of ${t!.asks}${t!.answeredInSlack ? `, ${t!.answeredInSlack} from Slack` : ""}${t!.meanWaitMs !== null ? ` · mean wait ${fmtDuration(t!.meanWaitMs)}` : ""}` : "no prompts in this range"} />
           </div>
+
+          <BudgetOutlook budgets={team ? budgets.filter((b) => b.scopeType !== "team" || b.scopeId === team) : budgets} isAdmin={isAdmin} />
 
           {t!.sessions === 0 ? (
             <div className="mt-4"><Empty title="No spend in this range" body="Spend appears as sessions report. Try a longer range, or another team." /></div>
