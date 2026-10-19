@@ -62,19 +62,24 @@ Production from source: `pnpm build` then `pnpm start`; the server serves the bu
 
 ## Put a session on the wall
 
-Every Tessera server hands out the reporter itself at `/downloads/tessera-reporter.tgz`: one file, no dependencies, always the version that matches the server. Machines need Node 20 or newer.
+One line on the machine that runs Claude Code. Every Tessera server serves its own installer with its address filled in, and the reporter that matches its version.
 
-1. In the console, open **Devices** and get an enrolment code. The page shows the commands below with your address filled in.
-2. On the machine that runs Claude Code:
+1. In the console, open **Devices** and get an enrolment code (valid 15 minutes, works once). The page shows the line below with your address and code filled in.
+2. Paste it in a terminal on the machine:
    ```sh
-   TESSERA=https://tessera.example.com
-   npx -y --package=$TESSERA/downloads/tessera-reporter.tgz tessera-reporter enrol --server $TESSERA --code XXXX-XXXX
-   npx -y --package=$TESSERA/downloads/tessera-reporter.tgz tessera-reporter install
+   # macOS and Linux
+   curl -fsSL https://tessera.example.com/install.sh | sh -s -- --code XXXX-XXXX
    ```
-   `install` copies the reporter to `~/.tessera/bin` and adds its hooks to `~/.claude/settings.json` without touching anything else there. Afterwards, `node ~/.tessera/bin/tessera-reporter.mjs status` shows the connection and `… uninstall` removes the hooks.
+   ```powershell
+   # Windows (PowerShell)
+   $env:TESSERA_CODE = "XXXX-XXXX"; irm https://tessera.example.com/install.ps1 | iex
+   ```
+   The script downloads the reporter into `~/.tessera/bin`, enrols the machine, adds Tessera's hooks to Claude Code's `~/.claude/settings.json` without touching anything else there, and runs a self-check (`doctor`) that says what to fix if anything is off. Hooks are registered in Claude Code's exec form (a Node executable plus arguments, no shell), which behaves the same on macOS, Linux and Windows. If Node 20 or newer is not installed, the script fetches a private copy into `~/.tessera/node`; nothing else on the machine changes. Running the line again is safe: an enrolled machine keeps its token and the hooks are refreshed.
 3. Start a Claude Code session. It appears within two seconds of its first prompt.
 
-For CI runners, issue a token in **Devices → Issue a token by hand** and use `enrol --server $TESSERA --token tsr_…` instead of a code.
+Afterwards, the command the installer prints at the end runs `doctor` (checks Node, enrolment, the server, the token and the hooks), `status`, or `uninstall` (removes the hooks; the device token stays until you delete `~/.tessera/config.json`).
+
+For CI runners, issue a token in **Devices → Issue a token by hand** and run the installer with `--token tsr_…` (or `$env:TESSERA_TOKEN` on Windows) instead of a code. With Node already installed, the manual route still works: `npx -y --package=$TESSERA/downloads/tessera-reporter.tgz tessera-reporter enrol --server $TESSERA --code XXXX-XXXX`, then `… install`.
 
 ### What the reporter sends, and when
 

@@ -3,7 +3,7 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createReadStream, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ZodError } from "zod";
 import { principalFromApiKey, scopeFor } from "./auth/apikeys.js";
 import { sha256 } from "./auth/crypto.js";
@@ -18,6 +18,7 @@ import { fleetRoutes } from "./routes/fleet.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { policyRoutes } from "./routes/policy.js";
+import { installPs1, installSh } from "./installers.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { apiKeyRoutes } from "./routes/apikeys.js";
 import { scimRoutes } from "./routes/scim.js";
@@ -143,12 +144,17 @@ export async function buildApp(): Promise<App> {
     "tessera-reporter.tgz": config.reporterTgz || join(pkgs, "reporter-claude", "release", "tessera-reporter.tgz"),
     "tessera-cli.tgz": config.cliTgz || join(pkgs, "cli", "release", "tessera-cli.tgz"),
   };
+  // The single-file reporter, for the one-line installers.
+  downloads["tessera-reporter.mjs"] = join(dirname(downloads["tessera-reporter.tgz"]!), "tessera-reporter.mjs");
+  server.get("/install.sh", async (_req, reply) => reply.header("content-type", "text/x-shellscript; charset=utf-8").header("cache-control", "no-cache").send(installSh(config.publicUrl)));
+  server.get("/install", async (_req, reply) => reply.header("content-type", "text/x-shellscript; charset=utf-8").header("cache-control", "no-cache").send(installSh(config.publicUrl)));
+  server.get("/install.ps1", async (_req, reply) => reply.header("content-type", "text/plain; charset=utf-8").header("cache-control", "no-cache").send(installPs1(config.publicUrl)));
   server.get("/downloads/:file", async (req, reply) => {
     const { file } = req.params as { file: string };
     const path = downloads[file];
     if (!path) return reply.code(404).send({ error: "not found" });
     if (!existsSync(path)) return reply.code(404).send({ error: `${file} is not built on this server` });
-    reply.header("content-type", "application/gzip");
+    reply.header("content-type", file.endsWith(".mjs") ? "text/javascript; charset=utf-8" : "application/gzip");
     reply.header("cache-control", "no-cache");
     reply.header("content-disposition", `attachment; filename="${file}"`);
     return reply.send(createReadStream(path));
