@@ -1,4 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +23,9 @@ const EVENTS: Array<[string, number]> = [
 ];
 
 const OURS = /tessera-reporter(?:\.m?js)?\\?"?\s+hook\b/;
-const isOurs = (cmd: string | undefined): boolean => !!cmd && OURS.test(cmd);
+type HookEntry = { type: string; command: string; args?: string[]; timeout?: number; shell?: string };
+/** Ours in either form: the old shell command "node ... hook X", or exec form with our script as the first argument. */
+const isOurs = (h: Partial<HookEntry> | undefined): boolean => !!h && ((!!h.command && OURS.test(h.command)) || (Array.isArray(h.args) && /tessera-reporter(\.m?js)?$/.test(h.args[0] ?? "") && h.args[1] === "hook"));
 
 function settingsPath(): string {
   return join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
@@ -46,6 +49,31 @@ function installBin(): string {
     return dest;
   }
   return resolve(dirname(self), "..", "bin", "tessera-reporter.js");
+}
+
+/** Events that have one of our hooks in a settings file. */
+function hooksInstalled(settingsFile: string): string[] {
+  try {
+    const hooks = (JSON.parse(readFileSync(settingsFile, "utf8")).hooks ?? {}) as Record<string, Array<{ hooks?: HookEntry[] }>>;
+    return Object.keys(hooks).filter((ev) => (hooks[ev] ?? []).some((g) => (g.hooks ?? []).some(isOurs)));
+  } catch {
+    return [];
+  }
+}
+
+/** Our exec-form hooks whose Node or script path no longer exists (a moved checkout, a removed private Node). */
+function staleHooks(settingsFile: string): string[] {
+  try {
+    const hooks = (JSON.parse(readFileSync(settingsFile, "utf8")).hooks ?? {}) as Record<string, Array<{ hooks?: HookEntry[] }>>;
+    const out: string[] = [];
+    for (const ev of Object.keys(hooks)) for (const g of hooks[ev] ?? []) for (const h of g.hooks ?? []) {
+      if (!isOurs(h) || !Array.isArray(h.args)) continue;
+      if (!existsSync(h.command) || !existsSync(h.args[0] ?? "")) out.push(ev);
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 function readStdin(): Promise<string> {
@@ -112,30 +140,33 @@ export async function main(args: string[]): Promise<void> {
       const p = settingsPath();
       mkdirSync(dirname(p), { recursive: true });
       const settings: Record<string, unknown> = existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>) : {};
-      const hooks = (settings.hooks ??= {}) as Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string; timeout?: number }> }>>;
+      const hooks = (settings.hooks ??= {}) as Record<string, Array<{ matcher?: string; hooks: HookEntry[] }>>;
       const bin = installBin();
+      // Exec form: the Node that is running this installer, spawned directly with our script. No shell on any
+      // platform, so quoting, Git Bash and PowerShell never come into it, and a private Node works too.
+      const entry = (ev: string, timeout: number): HookEntry => ({ type: "command", command: process.execPath, args: [bin, "hook", ev], timeout });
       let added = 0;
       for (const [ev, timeout] of EVENTS) {
         const list = (hooks[ev] ??= []);
-        const has = list.some((g) => g.hooks?.some((h) => isOurs(h.command)));
+        const has = list.some((g) => g.hooks?.some(isOurs));
         if (has) {
-          for (const g of list) for (const h of g.hooks ?? []) if (isOurs(h.command)) { h.command = `node "${bin}" hook ${ev}`; h.timeout = timeout; }
+          for (const g of list) g.hooks = (g.hooks ?? []).map((h) => (isOurs(h) ? entry(ev, timeout) : h));
           continue;
         }
-        list.push({ hooks: [{ type: "command", command: `node "${bin}" hook ${ev}`, timeout }] });
+        list.push({ hooks: [entry(ev, timeout)] });
         added++;
       }
       writeFileSync(p, JSON.stringify(settings, null, 2) + "\n");
-      process.stdout.write(`${added ? `Added ${added} hook${added > 1 ? "s" : ""}` : "Hooks already present; updated the command path"} in ${p}.\n${loadConfig() ? "Start a Claude Code session; it will appear on your Tessera wall." : "Now run: tessera-reporter enrol --server <url> --code <code>"}\n`);
+      process.stdout.write(`${added ? `Added ${added} hook${added > 1 ? "s" : ""}` : "Hooks already present; updated them"} in ${p}.\n${loadConfig() ? "Start a Claude Code session; it will appear on your Tessera wall." : "Now run: tessera-reporter enrol --server <url> --code <code>"}\n`);
       return;
     }
     case "uninstall": {
       const p = settingsPath();
       if (!existsSync(p)) return;
       const settings = JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
-      const hooks = (settings.hooks ?? {}) as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+      const hooks = (settings.hooks ?? {}) as Record<string, Array<{ hooks: HookEntry[] }>>;
       for (const ev of Object.keys(hooks)) {
-        hooks[ev] = (hooks[ev] ?? []).map((g) => ({ ...g, hooks: g.hooks.filter((h) => !isOurs(h.command)) })).filter((g) => g.hooks.length);
+        hooks[ev] = (hooks[ev] ?? []).map((g) => ({ ...g, hooks: g.hooks.filter((h) => !isOurs(h)) })).filter((g) => g.hooks.length);
         if (!hooks[ev]!.length) delete hooks[ev];
       }
       writeFileSync(p, JSON.stringify(settings, null, 2) + "\n");
@@ -150,10 +181,47 @@ export async function main(args: string[]): Promise<void> {
       }
       const who = await get<{ device: string; user: string; liveSessions: number }>(cfg, "/api/ingest/whoami", 5000);
       const p = settingsPath();
-      const installed = existsSync(p) && OURS.test(readFileSync(p, "utf8"));
+      const installed = existsSync(p) && hooksInstalled(p).length > 0;
       process.stdout.write(
         `Server: ${cfg.serverUrl}\n${who ? `Device: ${who.device} (${who.user}) · ${who.liveSessions} live session${who.liveSessions === 1 ? "" : "s"} on the wall` : "Server unreachable or token revoked"}\nHooks: ${installed ? `installed in ${p}` : "not installed (run: tessera-reporter install)"}\nState: ${HOME}\n`,
       );
+      return;
+    }
+    case "doctor": {
+      // Everything that has to be true for a session to appear and be answerable, checked in order, each with a fix.
+      const rows: Array<[boolean | null, string, string?]> = [];
+      const major = Number(process.versions.node.split(".")[0]);
+      rows.push([major >= 20, `Node ${process.version} at ${process.execPath}`, major >= 20 ? undefined : "Node 20 or newer is needed; rerun the installer, which fetches a private copy."]);
+      const cfg = loadConfig();
+      rows.push([!!cfg, cfg ? `Enrolled with ${cfg.serverUrl} (${CONFIG_PATH})` : "Not enrolled", cfg ? undefined : "Get an enrolment code on the Devices page and run the installer with --code."]);
+      if (cfg) {
+        const health = await get<{ ok: boolean }>(cfg, "/api/health", 5000);
+        rows.push([!!health?.ok, health?.ok ? "Server reachable" : `Cannot reach ${cfg.serverUrl}`, health?.ok ? undefined : "Check the address, your network, VPN or proxy. The server must be reachable from this machine."]);
+        if (health?.ok) {
+          const who = await get<{ device: string; user: string }>(cfg, "/api/ingest/whoami", 5000);
+          rows.push([!!who, who ? `Device token valid: ${who.device}, enrolled by ${who.user}` : "Device token rejected", who ? undefined : "The token was revoked. Get a new enrolment code and rerun the installer."]);
+        }
+      }
+      const p = settingsPath();
+      const ours = existsSync(p) ? hooksInstalled(p) : [];
+      const missing = EVENTS.map(([ev]) => ev).filter((ev) => !ours.includes(ev));
+      rows.push([missing.length === 0, missing.length === 0 ? `All ${EVENTS.length} hooks in ${p}` : `${missing.length} hook${missing.length > 1 ? "s" : ""} missing in ${p}: ${missing.join(", ")}`, missing.length ? "Run: tessera-reporter install" : undefined]);
+      const stale = existsSync(p) ? staleHooks(p) : [];
+      if (stale.length) rows.push([false, `${stale.length} hook${stale.length > 1 ? "s" : ""} point at a Node or script that no longer exists`, "Run: tessera-reporter install"]);
+      let claude: string | null = null;
+      try {
+        claude = execFileSync(process.platform === "win32" ? "claude.cmd" : "claude", ["--version"], { encoding: "utf8", timeout: 8000, stdio: ["ignore", "pipe", "ignore"], shell: process.platform === "win32" }).trim();
+      } catch {
+        claude = null;
+      }
+      rows.push([claude ? true : null, claude ? `Claude Code ${claude.split("\n")[0]}` : "Claude Code not found on PATH (fine if it runs from elsewhere)"]);
+      let bad = 0;
+      for (const [ok, text, fix] of rows) {
+        if (ok === false) bad++;
+        process.stdout.write(`${ok === true ? "ok " : ok === false ? "FAIL" : "-- "} ${text}\n${fix ? `     → ${fix}\n` : ""}`);
+      }
+      process.stdout.write(bad ? `\n${bad} problem${bad > 1 ? "s" : ""} to fix.\n` : "\nEverything looks right. Start a Claude Code session and watch the wall.\n");
+      process.exitCode = bad ? 1 : 0;
       return;
     }
     case "version":
@@ -168,6 +236,7 @@ export async function main(args: string[]): Promise<void> {
   install      Add Tessera's hooks to Claude Code's settings.json.
   uninstall    Remove them again.
   status       Show the connection from this machine's side.
+  doctor       Check Node, enrolment, the server, the token and the hooks; say what to fix.
   hook <event> Used by Claude Code; reads the event from stdin.
 `);
   }

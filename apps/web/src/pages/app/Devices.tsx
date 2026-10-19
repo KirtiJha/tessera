@@ -60,7 +60,9 @@ export function Devices() {
   };
 
   const origin = enrol?.serverUrl ?? window.location.origin;
-  const npx = `npx -y --package=${origin}/downloads/tessera-reporter.tgz tessera-reporter`;
+  const [os, setOs] = useState<"mac" | "win">(() => (/windows/i.test(navigator.userAgent) ? "win" : "mac"));
+  const code = enrol?.code ?? "<code>";
+  const oneLiner = os === "win" ? `$env:TESSERA_CODE = "${code}"; irm ${origin}/install.ps1 | iex` : `curl -fsSL ${origin}/install.sh | sh -s -- --code ${code}`;
 
   return (
     <div className="mx-auto max-w-4xl p-3 sm:p-5">
@@ -70,36 +72,46 @@ export function Devices() {
       {welcome && (!devices || devices.length === 0) ? (
         <div className="mt-5 rounded-xl border border-teal-700 bg-[#122826] p-5">
           <div className="text-[16px] font-semibold text-teal-300">Welcome. Let's get your first session on the wall.</div>
-          <p className="mt-1 text-[13.5px] text-mist">Enrol the machine you run Claude Code on, then install the hooks. Three commands; two minutes.</p>
+          <p className="mt-1 text-[13.5px] text-mist">Get a code, paste one line on the machine you run Claude Code on, start a session. About a minute.</p>
         </div>
       ) : null}
 
       <Panel title="Enrol a machine" className="mt-5" action={<Button size="sm" variant="primary" onClick={() => void newCode()}>{enrol ? "New code" : "Get an enrolment code"}</Button>}>
         <ol className="space-y-4 text-[13.5px] text-mist">
           <li>
-            <div className="mb-1.5 font-medium text-snow">1 · On the machine, enrol with a one-time code</div>
+            <div className="mb-1.5 font-medium text-snow">1 · Get a one-time code</div>
             {enrol ? (
-              <>
-                <div className="mb-2 flex items-center gap-3">
-                  <span className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-1.5 font-mono text-[18px] font-semibold tracking-[0.12em] text-amber-400">{enrol.code}</span>
-                  <span className="text-[12px] text-fog">expires in {Math.max(0, Math.round((enrol.expiresAt - Date.now()) / 60000))} min · the page refreshes when the machine appears below</span>
-                </div>
-                <Code>{`${npx} enrol --server ${origin} --code ${enrol.code}`}</Code>
-              </>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-1.5 font-mono text-[18px] font-semibold tracking-[0.12em] text-amber-400">{enrol.code}</span>
+                <span className="text-[12px] text-fog">expires in {Math.max(0, Math.round((enrol.expiresAt - Date.now()) / 60000))} min · works once · this page updates when the machine appears below</span>
+              </div>
             ) : (
-              <p className="text-fog">Get a code first. It is valid for 15 minutes and works once.</p>
+              <p className="text-fog">Click <span className="text-snow">Get an enrolment code</span>. It is valid for 15 minutes and works once.</p>
             )}
           </li>
           <li>
-            <div className="mb-1.5 font-medium text-snow">2 · Install the Claude Code hooks</div>
-            <Code>{`${npx} install`}</Code>
-            <p className="mt-1.5 text-[12.5px] text-fog">Copies the reporter to <span className="font-mono">~/.tessera/bin</span> and adds its hooks to <span className="font-mono">~/.claude/settings.json</span> without touching anything else there. Needs Node 20 or newer. Run it again with <span className="font-mono">uninstall</span> to remove the hooks.</p>
+            <div className="mb-1.5 flex flex-wrap items-center gap-2 font-medium text-snow">
+              2 · Paste one line in a terminal on the machine
+              <span className="ml-auto flex items-center gap-1 rounded-lg border border-line bg-slate-1 p-0.5 text-[12px] font-normal">
+                <button onClick={() => setOs("mac")} className={`rounded-md px-2 py-0.5 ${os === "mac" ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>macOS / Linux</button>
+                <button onClick={() => setOs("win")} className={`rounded-md px-2 py-0.5 ${os === "win" ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>Windows</button>
+              </span>
+            </div>
+            <Code>{oneLiner}</Code>
+            <p className="mt-1.5 text-[12.5px] text-fog">
+              {os === "win" ? "In PowerShell. " : "In Terminal. "}
+              Downloads the reporter from this server into <span className="font-mono">~/.tessera</span>, enrols the machine, adds Tessera's hooks to Claude Code's <span className="font-mono">~/.claude/settings.json</span> without touching anything else there, and checks the result. If Node 20+ is not installed, a private copy goes into <span className="font-mono">~/.tessera/node</span>; nothing else on the machine changes.
+            </p>
           </li>
           <li>
             <div className="mb-1.5 font-medium text-snow">3 · Start a Claude Code session</div>
-            <p className="text-fog">It appears on the live wall within two seconds of its first prompt. <span className="font-mono">node ~/.tessera/bin/tessera-reporter.mjs status</span> shows the connection from the machine's side.</p>
+            <p className="text-fog">It appears on the live wall within two seconds of its first prompt. If it does not, the installer's last lines say what to fix; run <span className="font-mono">doctor</span> again any time with the command the installer printed at the end.</p>
           </li>
         </ol>
+        <details className="mt-4 text-[12.5px] text-fog">
+          <summary className="cursor-pointer text-mist">By hand, without the script</summary>
+          <p className="mt-2">With Node 20+ installed: <span className="font-mono">npx -y --package={origin}/downloads/tessera-reporter.tgz tessera-reporter enrol --server {origin} --code {code}</span>, then the same command ending in <span className="font-mono">install</span>. To remove the hooks later, run it with <span className="font-mono">uninstall</span>. Scripts: <a className="text-teal-300 hover:underline" href={`${origin}/install.sh`}>install.sh</a> · <a className="text-teal-300 hover:underline" href={`${origin}/install.ps1`}>install.ps1</a>.</p>
+        </details>
       </Panel>
 
       <Panel title="Other agent runtimes" className="mt-4">
@@ -145,7 +157,8 @@ OTEL_RESOURCE_ATTRIBUTES="session.id=$(uuidgen)"   # optional; else each trace i
         <p className="mb-3 text-[13.5px] text-mist">Copy it now. Tessera stores only a hash and cannot show it again.</p>
         <Code>{tokenModal?.token ?? ""}</Code>
         <p className="mt-3 text-[12.5px] text-fog">On the machine:</p>
-        <Code>{`${npx} enrol --server ${origin} --token ${tokenModal?.token ?? ""}`}</Code>
+        <Code>{`curl -fsSL ${origin}/install.sh | sh -s -- --token ${tokenModal?.token ?? ""}`}</Code>
+        <p className="mt-1.5 text-[12px] text-fog">Windows: <span className="font-mono">$env:TESSERA_TOKEN = "{tokenModal?.token ?? ""}"; irm {origin}/install.ps1 | iex</span></p>
         <div className="mt-4 flex justify-end"><Button variant="primary" onClick={() => setTokenModal(null)}>I've saved it</Button></div>
       </Modal>
     </div>

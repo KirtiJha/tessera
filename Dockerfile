@@ -24,6 +24,7 @@ RUN addgroup -S -g 10001 tessera && adduser -S -u 10001 -G tessera tessera
 COPY --from=build /out/server /app/server
 COPY --from=build /src/apps/web/dist /app/web/dist
 COPY --from=build /src/packages/reporter-claude/release/tessera-reporter.tgz /app/downloads/tessera-reporter.tgz
+COPY --from=build /src/packages/reporter-claude/release/tessera-reporter.mjs /app/downloads/tessera-reporter.mjs
 COPY --from=build /src/packages/cli/release/tessera-cli.tgz /app/downloads/tessera-cli.tgz
 COPY --from=build /src/packages/contract/dist /app/server/node_modules/@tessera/contract/dist
 COPY --from=build /src/packages/contract/package.json /app/server/node_modules/@tessera/contract/package.json

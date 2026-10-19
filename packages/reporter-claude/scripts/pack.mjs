@@ -4,7 +4,7 @@
 // from their own server: no npm registry, and always the matching version.
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,4 +47,6 @@ writeFileSync(
 
 const file = execFileSync("npm", ["pack", "--silent", "--pack-destination", out], { cwd: pkgDir, encoding: "utf8" }).trim().split("\n").pop();
 renameSync(join(out, file), join(out, "tessera-reporter.tgz"));
-console.log(`packed release/tessera-reporter.tgz (v${version})`);
+// The single file too: the one-line installers fetch it directly, no npm or tar needed on the machine.
+copyFileSync(join(pkgDir, "tessera-reporter.mjs"), join(out, "tessera-reporter.mjs"));
+console.log(`packed release/tessera-reporter.tgz and tessera-reporter.mjs (v${version})`);
