@@ -4,6 +4,7 @@ import type { DevicePrincipal } from "../auth/devices.js";
 import { config } from "../config.js";
 import { ingestPool, pool, withTx } from "../db/pool.js";
 import { hasDelayedChannels, notify, resolveNotifications, type Notification } from "../notify/notifier.js";
+import { prefsFor, pushTo, type PushPayload } from "../notify/personal.js";
 import { applicable, budgetStatuses, recordBreach } from "./budgets.js";
 import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
@@ -142,6 +143,16 @@ function waitingFields(rec: SessionRecord): Record<string, string> {
   const last = (rec.activity ?? []).filter((a) => a.status !== "running").slice(-3).map((a) => a.summary.slice(0, 80));
   if (last.length) out["Just before"] = last.join(" → ").slice(0, 300);
   return out;
+}
+
+/** One or two lines for a phone notification: the command or the prompt, then the risk flags. */
+export function pushText(rec: SessionRecord): string {
+  const ask = rec.openAsk;
+  if (!ask) return rec.waitReason === "question" ? "Has a question for you." : "Waiting for input.";
+  const d = ask.detail;
+  const what = d?.command ?? (d?.edits.length ? `Edit ${d.edits.map((e) => e.path.split("/").pop()).join(", ")}` : d?.write ? `Write ${d.write.path.split("/").pop()}` : ask.prompt);
+  const risk = riskForAsk(ask.tool, d, rec.cwd).filter((f) => f.level !== "info");
+  return `${what.slice(0, 220)}${risk.length ? `\n⚠ ${risk.map((f) => f.label).join(" · ")}` : ""}`;
 }
 
 /** One key per thing a session waits on: the open prompt's id, else the wait reason. */
@@ -365,6 +376,8 @@ export class Fleet {
       liveSessions: this.liveCount(orgId),
       deliveries,
       reporterSupport: compareMinor(report.reporter.version, config.reporterSupport.min, config.reporterSupport.max),
+      // The owner's away setting decides how long the reporter holds a prompt for Tessera.
+      presence: (await prefsFor(rec.ownerId).catch(() => null))?.presence ?? "auto",
     };
   }
 
@@ -409,6 +422,32 @@ export class Fleet {
       };
       this.waiting.set(waitKey, { orgId, sessionId: rec.id, since: Date.now(), n });
       await notify(orgId, n, this.log, { waitedMs: 0 });
+      if (!rec.openAsk?.inTerminal) {
+        const ask = rec.openAsk;
+        const answerable = ask && ask.kind !== "question" && !ask.inTerminal;
+        await this.pushPersonal(rec, "waiting", `wait:${waitKey}`, {
+          kind: "waiting",
+          title: `${label} needs ${rec.control.assignee ? rec.control.assignee.name : "you"}`,
+          body: pushText(rec),
+          tag: `tessera-${rec.id}`,
+          url: `/app/sessions/${encodeURIComponent(rec.id)}`,
+          sessionId: rec.id,
+          ...(answerable ? { ask: { id: ask.id, kind: ask.kind } } : {}),
+        });
+      }
+    }
+    // Not answered from Tessera in time: the prompt is now the terminal's. Say so where people were asked.
+    if (rec.openAsk?.inTerminal && prev?.openAsk?.id === rec.openAsk.id && !prev.openAsk.inTerminal) {
+      const where = rec.hostname ? ` on ${rec.hostname}` : "";
+      await resolveNotifications(orgId, waitKey, `Not answered here in time: it is now waiting in the terminal${where}. Answer it there.`, this.log);
+      await this.pushPersonal(rec, "waiting", `terminal:${waitKey}`, {
+        kind: "waiting",
+        title: `${label} is waiting in the terminal`,
+        body: `Not answered in Tessera in time. It is now waiting${where}; answer it there.`,
+        tag: `tessera-${rec.id}`,
+        url: `/app/sessions/${encodeURIComponent(rec.id)}`,
+        sessionId: rec.id,
+      });
     }
     // Anything this session was waiting on that it no longer is: close it out in chat and paging tools.
     for (const [k, w] of this.waiting) {
@@ -423,8 +462,17 @@ export class Fleet {
     }
 
     for (const e of fresh) {
+      if (e.kind === "turn.end") await this.pushDone(rec, label, e);
       if (e.kind === "agent.fail") {
         const agent = rec.agents.find((a) => a.id === e.agentId);
+        await this.pushPersonal(rec, "failed", `fail:${orgId}:${rec.id}:${e.id}`, {
+          kind: "failed",
+          title: `An agent failed in ${label}`,
+          body: (agent?.failure?.summary ?? e.text).slice(0, 300),
+          tag: `tessera-fail-${rec.id}`,
+          url: `/app/sessions/${encodeURIComponent(rec.id)}`,
+          sessionId: rec.id,
+        });
         await notify(orgId, {
           event: "agent.failed",
           dedupeKey: `${orgId}:${rec.id}:${e.id}`,
@@ -461,6 +509,56 @@ export class Fleet {
   }
 
   /**
+   * Push to the session's owner (and whoever it is handed to), if they want this
+   * kind and are not at their desk. Sent once across replicas: the push log key
+   * goes in first, and only the replica that wrote it sends.
+   */
+  private async pushPersonal(rec: SessionRecord, want: "waiting" | "done" | "failed", key: string, payload: PushPayload): Promise<void> {
+    const people = [...new Set([rec.ownerId, rec.control.assignee?.id].filter((x): x is string => !!x))];
+    const targets: string[] = [];
+    for (const id of people) {
+      const prefs = await prefsFor(id);
+      // At the desk, the terminal is right there: no pushes. Handed-over sessions still reach the person they were handed to.
+      if (prefs.notify[want] && (prefs.presence !== "desk" || id === rec.control.assignee?.id)) targets.push(id);
+    }
+    if (!targets.length) return;
+    const first = await pool.query("INSERT INTO push_log (key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING key", [key.slice(0, 400)]);
+    if (!first.rowCount) return;
+    await pushTo(targets, payload, this.log);
+  }
+
+  /** A turn that ran for a while has ended: tell the owner what came of it. */
+  private async pushDone(rec: SessionRecord, label: string, end: ActivityEvent): Promise<void> {
+    const r = await pool.query<{ started: string | null }>(
+      "SELECT MAX(ts) AS started FROM events WHERE org_id = $1 AND session_id = $2 AND kind = 'turn.start' AND ts <= $3",
+      [rec.orgId, rec.id, end.ts],
+    );
+    const started = r.rows[0]?.started ? Date.parse(r.rows[0].started) : null;
+    const took = started ? Date.parse(end.ts) - started : 0;
+    // Short turns are back-and-forth with someone at the keyboard; only long ones are worth a notification.
+    if (took < 90_000) return;
+    const cost = priceFor(totalUsage(rec.usageByModel, rec.agents), await priceTableFor(rec.orgId)).usd;
+    const files = rec.filesChanged ?? [];
+    const added = files.reduce((n, f) => n + (f.added ?? 0), 0);
+    const removed = files.reduce((n, f) => n + (f.removed ?? 0), 0);
+    const failed = rec.agents.filter((a) => a.status === "failed").length;
+    const parts = [
+      `Finished after ${Math.round(took / 60_000)} min`,
+      files.length ? `${files.length} file${files.length > 1 ? "s" : ""} changed (+${added} −${removed})` : "no files changed",
+      cost !== null ? `$${cost.toFixed(2)} so far` : null,
+      failed ? `${failed} agent${failed > 1 ? "s" : ""} failed` : null,
+    ].filter(Boolean);
+    await this.pushPersonal(rec, "done", `done:${rec.orgId}:${rec.id}:${end.id}`, {
+      kind: "done",
+      title: `${label} is done`,
+      body: parts.join(" · "),
+      tag: `tessera-${rec.id}`,
+      url: `/app/sessions/${encodeURIComponent(rec.id)}`,
+      sessionId: rec.id,
+    });
+  }
+
+  /**
    * Decision for a tool call, in order: a paused session denies everything, a
    * hard budget with enforcement denies, then the organisation's policy rules.
    */
@@ -489,7 +587,9 @@ export class Fleet {
       void recordDecisions(orgId, req.sessionId, device.userId, call, verdict, policy.version).catch((e) => this.log.error({ err: e }, "policy decision record failed"));
     }
     const rule = verdict.rule;
-    if (!rule || rule.effect === "allow") return { decision: "allow", reason: null };
+    if (!rule) return { decision: "allow", reason: null };
+    // An explicit allow rule lets the runtime skip its own permission prompt.
+    if (rule.effect === "allow") return { decision: "allow", reason: `Allowed by Tessera policy "${rule.name}"`, explicit: true };
     const reason = `${rule.effect === "deny" ? "Denied" : "Needs approval"} by Tessera policy "${rule.name}"${rule.reason ? `: ${rule.reason}` : "."}`;
     if (rule.effect === "deny" && scope) {
       const label = scope.name ?? scope.git?.repo ?? req.sessionId.slice(0, 8);

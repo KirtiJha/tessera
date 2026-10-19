@@ -90,6 +90,16 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
   const [message, setMessage] = useState("");
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const ask = s.openAsk;
+  // How long an answer from here can still be applied; after that the terminal has the prompt.
+  const until = ask?.answerableUntil ? Date.parse(ask.answerableUntil) : null;
+  const [tick, setTick] = useState(Date.now());
+  useEffect(() => {
+    if (until === null || ask?.inTerminal) return;
+    const t = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [until, ask?.inTerminal]);
+  const left = until !== null ? Math.max(0, Math.round((until - Math.max(now, tick)) / 1000)) : null;
+  const handedOff = !!ask && (ask.inTerminal || (left !== null && left <= 0));
   const kind = sessionKind(s);
   const detail = ask?.detail ?? null;
   const risk = useMemo(() => (ask ? riskForAsk(ask.tool, detail, s.cwd) : []), [ask, detail, s.cwd]);
@@ -131,7 +141,12 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
       <AnimatePresence mode="wait">
         {ask ? (
           <motion.div key={ask.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-3.5">
-            <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium text-amber-400"><StateShape kind="waiting" size={10} /> {{ question: "Question", plan: "Plan approval", permission: "Permission request" }[ask.kind]} · {ago(ask.createdAt, now)}{ask.tool && !detail?.command ? <span className="font-mono text-snow">· {ask.tool}</span> : null}</div>
+            <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium text-amber-400"><StateShape kind="waiting" size={10} /> {{ question: "Question", plan: "Plan approval", permission: "Permission request" }[ask.kind]} · {ago(ask.createdAt, now)}{ask.tool && !detail?.command ? <span className="font-mono text-snow">· {ask.tool}</span> : null}{!handedOff && left !== null ? <span className={`ml-auto font-normal ${left <= 15 ? "text-amber-300" : "text-fog"}`} title="After this, the terminal shows its own dialog and only the terminal can answer.">answer here within {left >= 60 ? `${Math.ceil(left / 60)} min` : `${left} s`}</span> : null}</div>
+            {handedOff ? (
+              <div className="mt-2.5 rounded-md border border-line-2 bg-slate-2 px-3 py-2 text-[12.5px] leading-relaxed text-mist" role="status">
+                <span className="font-medium text-snow">Now waiting in the terminal{s.machine ? ` on ${s.machine.hostname}` : ""}.</span> It was not answered here in time, so Claude Code is asking there, and only the terminal can answer it now. To give yourself longer next time, switch to <span className="text-violet-300">Away</span> in the top bar.
+              </div>
+            ) : null}
             {risk.length ? <div className="mt-2"><RiskChips flags={risk} /></div> : null}
             {detail && ask.kind === "permission" && (detail.command || detail.edits.length || detail.write || detail.url || detail.paths.length) ? (
               <div className="mt-2.5"><AskSubstance detail={detail} tool={ask.tool} /></div>
@@ -144,7 +159,7 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
               </div>
             ) : null}
             {detail?.forcedBy ? <div className="mt-2 text-[12px] text-amber-400/90">Asked because of policy: {detail.forcedBy}</div> : null}
-            {ask.kind === "question" ? (
+            {handedOff ? null : ask.kind === "question" ? (
               questions.length ? (
                 <div className="mt-3 space-y-3">
                   {questions.map((q) => (

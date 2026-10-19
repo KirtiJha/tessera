@@ -198,9 +198,23 @@ async function report(cfg: Config, txn: Txn, timeoutMs: number): Promise<{ ack: 
     const acked = new Set(r.ack.ackedEvents);
     s.outbox = s.outbox.filter((e) => !acked.has(e.id));
     s.lastReportAt = Date.now();
+    if (r.ack.presence) s.presence = r.ack.presence;
     return takeFresh(s, r.ack.deliveries);
   });
   return { ack: r.ack, fresh };
+}
+
+/**
+ * How long a prompt waits for an answer from Tessera before the terminal asks.
+ * "away" holds it ten minutes, "desk" a few seconds, "auto" uses this
+ * machine's setting. Never longer than the hook's own timeout allows.
+ */
+export function waitSeconds(cfg: Config, presence: SessionState["presence"], kind: "permission" | "question"): number {
+  const base = kind === "permission" ? cfg.permissionWaitSeconds : cfg.questionWaitSeconds;
+  const want = presence === "away" ? 600 : presence === "desk" ? (kind === "permission" ? 15 : 10) : base;
+  // Older installs gave these hooks 90 s and 60 s; leave room to report the hand-off before Claude Code gives up on the hook.
+  const limit = (cfg.hookTimeoutSeconds ?? (kind === "permission" ? 90 : 60)) - 30;
+  return Math.max(1, Math.min(want, limit));
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -211,10 +225,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * on until the deadline, because giving up early is what makes an approval in
  * the console arrive after the terminal has already asked.
  */
-async function waitForAnswer(cfg: Config, sid: string, txn: Txn, askId: string, seconds: number): Promise<Delivery | undefined> {
+async function waitForAnswer(cfg: Config, sid: string, txn: Txn, askId: string, kind: "permission" | "question"): Promise<Delivery | undefined> {
   const found = (list: Delivery[]) => list.find((d) => d.kind === "answer" && d.askId === askId);
-  let answer = found((await report(cfg, txn, budget(4000, 10_000))).fresh);
-  const deadline = Date.now() + seconds * 1000;
+  const start = Date.now();
+  // Tell the console how long it has, so it can count down and stop offering buttons after.
+  const until = (presence: SessionState["presence"]) => {
+    const seconds = waitSeconds(cfg, presence, kind);
+    txn((s) => {
+      if (s.openAsk?.id === askId) s.openAsk.answerableUntil = new Date(start + seconds * 1000).toISOString();
+    });
+    return seconds;
+  };
+  const cached = txn((s) => s.presence);
+  let seconds = until(cached);
+  const first = await report(cfg, txn, budget(4000, 10_000));
+  let answer = found(first.fresh);
+  // The person may have switched to away (or back) since this machine last heard: the server's word wins.
+  if (first.ack?.presence && first.ack.presence !== cached) {
+    seconds = until(first.ack.presence);
+    if (!answer) answer = found((await report(cfg, txn, budget(3000, 8000))).fresh);
+  }
+  const deadline = start + seconds * 1000;
   while (!answer && Date.now() < deadline) {
     const waitS = Math.max(1, Math.min(20, Math.floor((deadline - Date.now()) / 1000)));
     const r = await get<{ deliveries: Delivery[] }>(cfg, `/api/ingest/sessions/${encodeURIComponent(sid)}/deliveries?wait=${waitS}`, (waitS + 10) * 1000);
@@ -224,7 +255,27 @@ async function waitForAnswer(cfg: Config, sid: string, txn: Txn, askId: string, 
     }
     answer = found(txn((s) => takeFresh(s, r.deliveries)));
   }
+  if (!answer) {
+    // The terminal shows its own dialog now, and nothing outside it can answer that. Say so on the wall at once.
+    txn((s) => {
+      if (s.openAsk?.id !== askId) return;
+      s.openAsk.inTerminal = true;
+      s.openAsk.answerableUntil = null;
+      addEvent(s, "wait", `not answered in Tessera within ${seconds} s; now waiting in the terminal`);
+    });
+    await report(cfg, txn, budget(1500, 4000));
+  }
   return answer;
+}
+
+/** A prompt the terminal took over is settled once its agent moves on: close it on the wall. */
+function settleTerminalAsk(s: SessionState, agentId: string | null, tool?: string): void {
+  if (!s.openAsk?.inTerminal) return;
+  if ((s.openAskAgent ?? null) !== agentId && (!tool || s.openAsk.tool !== tool)) return;
+  s.openAsk = null;
+  s.openAskAgent = null;
+  s.status = "running";
+  s.waitReason = null;
 }
 
 /**
@@ -248,11 +299,13 @@ async function askFromTessera(cfg: Config, sid: string, txn: Txn, input: HookInp
       prompt: detail.questions.length === 1 ? first.question : detail.questions.map((q, i) => `${i + 1}. ${q.question}`).join("\n"),
       options: detail.questions.length === 1 ? first.options.map((o) => o.label) : [],
       detail,
+      answerableUntil: null,
+      inTerminal: false,
     };
     addEvent(s, "wait", `waiting on you: ${clean(first.question, 200)}`, agentId);
   });
-  const answer = await waitForAnswer(cfg, sid, txn, askId, cfg.questionWaitSeconds);
-  // Either way the dialog is no longer Tessera's to show.
+  txn((s) => void (s.openAskAgent = agentId));
+  const answer = await waitForAnswer(cfg, sid, txn, askId, "question");
   const answers: Record<string, string> = {};
   let by = "Tessera";
   if (answer) {
@@ -262,13 +315,16 @@ async function askFromTessera(cfg: Config, sid: string, txn: Txn, input: HookInp
     if (!Object.keys(answers).length && (p.option || p.text)) answers[first.question] = String(p.option || p.text);
     by = p.by ?? by;
   }
+  // Answered here: the tool runs with the answer. Not answered: it stays open on the wall as "in the terminal"
+  // until the question's own tool call completes there.
+  if (!answer || !Object.keys(answers).length) return undefined;
   txn((s) => {
     s.openAsk = null;
+    s.openAskAgent = null;
     s.status = "running";
     s.waitReason = null;
-    if (Object.keys(answers).length) addEvent(s, "answer", `answered by ${by}: ${clean(Object.values(answers).join(", "), 200)}`, agentId);
+    addEvent(s, "answer", `answered by ${by}: ${clean(Object.values(answers).join(", "), 200)}`, agentId);
   });
-  if (!answer || !Object.keys(answers).length) return undefined;
   await post(cfg, `/api/ingest/deliveries/${answer.id}/result`, { result: { applied: true } }, budget(1500, 4000));
   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { ...(input.tool_input ?? {}), answers } } };
 }
@@ -373,6 +429,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           s.status = "running";
           s.waitReason = null;
           const agentId = currentAgentId(s);
+          settleTerminalAsk(s, agentId);
           const bucket = agentId ? s.agents[agentId]?.toolCalls : s.toolCalls;
           if (bucket) bucket[tool] = (bucket[tool] ?? 0) + 1;
           startAction(s, actionId, tool, summary, agentId);
@@ -410,6 +467,9 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
               addEvent(s, "note", `Tessera denied ${summary}: ${d.reason ?? "policy"}`, agentId);
             });
             output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason ?? "Denied by Tessera policy." } };
+          } else if (d?.decision === "allow" && d.explicit && tool !== "AskUserQuestion" && tool !== "ExitPlanMode") {
+            // An allow rule in Tessera's policy: no need to ask anyone. Claude Code still applies its own deny rules.
+            output = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: d.reason ?? "Allowed by Tessera policy." } };
           } else if (d?.decision === "ask") {
             // Force the permission prompt, which Tessera then shows on the wall and in Slack.
             txn((s) => {
@@ -423,7 +483,8 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
       }
       case "PostToolUse": {
         txn((s) => {
-          s.status = "running";
+          settleTerminalAsk(s, currentAgentId(s), input.tool_name);
+          s.status = s.openAsk ? s.status : "running";
           endAction(s, input.tool_use_id, "ok", null, typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
         });
         break;
@@ -433,6 +494,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           const agentId = currentAgentId(s);
           const summary = toolSummary(input.tool_name, input.tool_input);
           const err = clean(String(input.error ?? "failed"), 500);
+          settleTerminalAsk(s, agentId, input.tool_name);
           endAction(s, input.tool_use_id, "failed", err.slice(0, 300), typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
           addEvent(s, "tool.fail", `${summary} failed: ${err.slice(0, 200)}`, agentId);
           const a = agentId ? s.agents[agentId] : null;
@@ -520,11 +582,12 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           const forcedBy = s.forced && s.forced.summary === summary && Date.now() - s.forced.at < 60_000 ? s.forced.reason : null;
           s.forced = null;
           const detail = isPlan ? null : askDetail(tool, input.tool_input, input.permission_suggestions, rationale, forcedBy);
-          s.openAsk = { id: askId, kind: isPlan ? "plan" : "permission", createdAt: new Date().toISOString(), tool, prompt: clean(isPlan ? planText || "Approve the plan?" : summary, 4000), options: [], detail };
+          s.openAsk = { id: askId, kind: isPlan ? "plan" : "permission", createdAt: new Date().toISOString(), tool, prompt: clean(isPlan ? planText || "Approve the plan?" : summary, 4000), options: [], detail, answerableUntil: null, inTerminal: false };
+          s.openAskAgent = currentAgentId(s);
           addEvent(s, "wait", `waiting on you: ${isPlan ? "plan approval" : summary}`);
         });
         if (cfg) {
-          const answer = await waitForAnswer(cfg, sid, txn, askId, cfg.permissionWaitSeconds);
+          const answer = await waitForAnswer(cfg, sid, txn, askId, "permission");
           if (answer) {
             const p = answer.payload as { decision?: string; text?: string | null; by?: string; scope?: string; rule?: unknown };
             const allow = p.decision === "allow" || p.decision === "approve";

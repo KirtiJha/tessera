@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { DensityPicker, NavWidthPicker, ThemePicker } from "../../components/Prefs";
+import { NotificationSettings, PresencePicker } from "../../components/PersonalSettings";
 import { Button, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
@@ -157,6 +158,13 @@ export function Account() {
   return (
     <div className="mx-auto max-w-lg p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Account</h1>
+      <Panel title="Where you answer prompts" className="mt-5">
+        <PresencePicker />
+        <p className="mt-3 text-[12px] leading-relaxed text-fog">When Claude Code needs a decision, it waits this long for an answer from Tessera (the console, Slack, or a notification) before the terminal shows its own dialog. Once the terminal asks, only the terminal can answer. Every machine of yours follows this setting within seconds.</p>
+      </Panel>
+      <Panel title="Notifications" className="mt-5">
+        <NotificationSettings />
+      </Panel>
       <Panel title="Preferences" className="mt-5">
         <div className="space-y-5">
           <div>

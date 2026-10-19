@@ -13,6 +13,7 @@ import { useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
 import { useAuth } from "../../lib/auth";
 import { healthFlags, healthLevel, medianCost, ticketOf, type HealthFlag } from "../../lib/health";
 import { usePref } from "../../lib/prefs";
+import { FirstRun } from "../../components/FirstRun";
 import { sessionKind, sessionLabel, useFleet, useSessions, type SessionKind } from "../../lib/fleet";
 import { ago, fmtTokens, fmtUsd } from "../../lib/format";
 import { buildRows, CARD_GAP, columnsFor, estimateRow, moveFocus } from "../../lib/wallLayout";
@@ -99,7 +100,8 @@ export function Wall() {
   }, [params]);
   const searchRef = useRef<HTMLInputElement>(null);
   // Remembered per browser; a stale or hand-edited value falls back to the default.
-  const [onlyPref, setOnly] = usePref<Only>("wall.only", "all");
+  // Engineers start on their own sessions; leads and admins on everyone's. Either way the choice is remembered.
+  const [onlyPref, setOnly] = usePref<Only>("wall.only", me?.user.role === "operator" ? "mine" : "all");
   const only: Only = onlyPref === "all" || onlyPref === "mine" || onlyPref === "look" || (ORDER as readonly string[]).includes(onlyPref) ? onlyPref : "all";
   const [groupPref, setGroup] = usePref<Group>("wall.group", "state");
   const group: Group = GROUPS.some(([g]) => g === groupPref) ? groupPref : "state";
@@ -248,6 +250,7 @@ export function Wall() {
       const ask = s?.openAsk;
       if (!s || !ask) return toast("That session is not waiting on anything.", "info");
       if (ask.kind === "question") return toast("Open the session to answer its question.", "info");
+      if (ask.inTerminal) return toast("That prompt is now waiting in the terminal; only the terminal can answer it.", "info");
       const decision = ask.kind === "plan" ? (yes ? "approve" : "reject") : yes ? "allow" : "deny";
       try {
         await post(id, "answer", { askId: ask.id, decision });
@@ -386,13 +389,13 @@ export function Wall() {
 
         <div ref={scrollRef} className={`pane min-h-0 flex-1 overflow-y-auto border-t border-line px-3 pt-3 sm:px-5 ${selected.size ? "pb-24" : "pb-5"}`}>
           {sessions.length === 0 ? (
-            <Empty
-              title={connected ? "Nothing is reporting yet" : "Connecting to the fleet"}
-              body={connected ? "Enrol a machine and install the reporter hooks. The next Claude Code session you start will appear here within two seconds of its first prompt." : "Waiting for the live stream."}
-              action={connected ? <Link to="/app/devices" className="inline-flex h-10 items-center rounded-lg bg-teal-400 px-4 text-[14px] font-medium text-ink hover:bg-teal-300">Enrol a machine</Link> : undefined}
-            />
+            connected ? <FirstRun /> : <Empty title="Connecting to the fleet" body="Waiting for the live stream." />
           ) : filtered.length === 0 ? (
-            <Empty title="No sessions match" body="Try another filter or clear the search." />
+            only === "mine" && !q ? (
+              <Empty title="None of your sessions are live" body="Your sessions show here as soon as you start Claude Code on a connected machine. Your team's are one click away." action={<Button onClick={() => setOnly("all")}>Show everyone's</Button>} />
+            ) : (
+              <Empty title="No sessions match" body="Try another filter or clear the search." />
+            )
           ) : (
             <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualizer.getVirtualItems().map((v) => {

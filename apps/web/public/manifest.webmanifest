@@ -1,0 +1,15 @@
+{
+  "name": "Tessera",
+  "short_name": "Tessera",
+  "description": "Every AI coding agent session, one wall: see what waits on you and answer from anywhere.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0B1117",
+  "theme_color": "#0B1117",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

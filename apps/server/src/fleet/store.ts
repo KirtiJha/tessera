@@ -301,6 +301,8 @@ export async function prune(retainSamplesDays: number, retainEventsDays: number,
   const held = "COALESCE(o.settings->'data'->'legalHold', 'null'::jsonb) <> 'null'::jsonb";
   const days = (key: string, def: number) => `make_interval(days => COALESCE((o.settings->'data'->>'${key}')::int, ${Math.trunc(def)}))`;
   await pool.query(`DELETE FROM samples x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.ts < now() - ${days("retainSamplesDays", retainSamplesDays)}`);
+  // The push log only stops a notification going out twice; a week is plenty.
+  await pool.query("DELETE FROM push_log WHERE at < now() - interval '7 days'");
   await pool.query(`DELETE FROM events x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.ts < now() - ${days("retainEventsDays", retainEventsDays)}`);
   await pool.query(`DELETE FROM policy_decisions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.created_at < now() - ${days("retainEventsDays", retainEventsDays)}`);
   await pool.query(`DELETE FROM sessions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND COALESCE(x.ended_at, x.dropped_at) < now() - ${days("retainSessionsDays", retainSessionsDays)}`);

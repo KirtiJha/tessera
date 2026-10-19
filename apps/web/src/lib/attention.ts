@@ -58,7 +58,7 @@ export function attentionItems(sessions: SessionView[], budgets: BudgetStatus[])
       items.push({
         id: `waiting:${s.id}`,
         kind: "waiting",
-        title: `${sessionLabel(s)} · ${ask ? ASK[ask.kind] : "Waiting for input"}`,
+        title: `${sessionLabel(s)} · ${ask ? (ask.inTerminal ? "Waiting in the terminal" : ASK[ask.kind]) : "Waiting for input"}`,
         detail: [s.ownerName ?? "Unassigned", ask?.tool, ask?.prompt].filter(Boolean).join(" · "),
         href,
         since: ask?.createdAt ?? s.lastSeenAt,

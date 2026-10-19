@@ -16,6 +16,8 @@ export interface Config {
   permissionWaitSeconds: number;
   /** How long a multiple-choice question waits for an answer from Tessera before the terminal asks, seconds. */
   questionWaitSeconds: number;
+  /** The timeout the installer gave the PreToolUse and PermissionRequest hooks; a wait must end before it. Absent on older installs. */
+  hookTimeoutSeconds?: number;
 }
 
 export const HOME = process.env.TESSERA_HOME ?? join(homedir(), ".tessera");
@@ -40,6 +42,7 @@ export function loadConfig(): Config | null {
       excerpts: raw.excerpts ?? true,
       permissionWaitSeconds: raw.permissionWaitSeconds ?? 55,
       questionWaitSeconds: raw.questionWaitSeconds ?? 20,
+      ...(raw.hookTimeoutSeconds ? { hookTimeoutSeconds: raw.hookTimeoutSeconds } : {}),
     };
   } catch {
     return null;

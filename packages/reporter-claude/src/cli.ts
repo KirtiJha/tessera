@@ -15,17 +15,20 @@ import { get, request, typicalLatencyMs } from "./transport.js";
 const EVENTS: Array<[string, number]> = [
   ["SessionStart", 15],
   ["UserPromptSubmit", 15],
-  ["PreToolUse", 60], // long enough to answer a question from Tessera; ordinary calls return in a few seconds at most
+  ["PreToolUse", 660], // a question can wait up to ten minutes for Tessera in away mode; ordinary calls return in seconds
   ["PostToolUse", 15],
   ["PostToolUseFailure", 15],
   ["SubagentStart", 15],
   ["SubagentStop", 15],
   ["Notification", 15],
-  ["PermissionRequest", 90],
+  ["PermissionRequest", 660], // likewise for a permission prompt or a plan
   ["Stop", 20],
   ["PreCompact", 15],
   ["SessionEnd", 10],
 ];
+
+/** What the long hooks above are given; the reporter keeps every wait inside it. */
+export const LONG_HOOK_SECONDS = 660;
 
 const OURS = /tessera-reporter(?:\.m?js)?\\?"?\s+hook\b/;
 type HookEntry = { type: string; command: string; args?: string[]; timeout?: number; shell?: string };
@@ -76,6 +79,18 @@ function hooksInstalled(settingsFile: string): string[] {
   try {
     const hooks = (JSON.parse(readFileSync(settingsFile, "utf8")).hooks ?? {}) as Record<string, Array<{ hooks?: HookEntry[] }>>;
     return Object.keys(hooks).filter((ev) => (hooks[ev] ?? []).some((g) => (g.hooks ?? []).some(isOurs)));
+  } catch {
+    return [];
+  }
+}
+
+/** Our long hooks (PreToolUse, PermissionRequest) still on the short timeouts of an older install. */
+function shortHooks(settingsFile: string): string[] {
+  try {
+    const hooks = (JSON.parse(readFileSync(settingsFile, "utf8")).hooks ?? {}) as Record<string, Array<{ hooks?: HookEntry[] }>>;
+    const out: string[] = [];
+    for (const ev of ["PreToolUse", "PermissionRequest"]) for (const g of hooks[ev] ?? []) for (const h of g.hooks ?? []) if (isOurs(h) && (h.timeout ?? 0) < LONG_HOOK_SECONDS) out.push(ev);
+    return out;
   } catch {
     return [];
   }
@@ -194,6 +209,9 @@ export async function main(args: string[]): Promise<void> {
         added++;
       }
       writeFileSync(p, JSON.stringify(settings, null, 2) + "\n");
+      // Remember the timeouts these hooks now have, so waits (away mode) stay inside them.
+      const cfgNow = loadConfig();
+      if (cfgNow && cfgNow.hookTimeoutSeconds !== LONG_HOOK_SECONDS) saveConfig({ ...cfgNow, hookTimeoutSeconds: LONG_HOOK_SECONDS });
       process.stdout.write(`${added ? `Added ${added} hook${added > 1 ? "s" : ""}` : "Hooks already present; updated them"} in ${p}.\n${loadConfig() ? "Start a Claude Code session; it will appear on your Tessera wall." : "Now run: tessera-reporter enrol --server <url> --code <code>"}\n`);
       return;
     }
@@ -267,6 +285,8 @@ export async function main(args: string[]): Promise<void> {
       const ours = existsSync(p) ? hooksInstalled(p) : [];
       const missing = EVENTS.map(([ev]) => ev).filter((ev) => !ours.includes(ev));
       rows.push([missing.length === 0, missing.length === 0 ? `All ${EVENTS.length} hooks in ${p}` : `${missing.length} hook${missing.length > 1 ? "s" : ""} missing in ${p}: ${missing.join(", ")}`, missing.length ? "Run: tessera-reporter install" : undefined]);
+      const short = existsSync(p) ? shortHooks(p) : [];
+      if (short.length) rows.push([null, `Hooks from an older install: prompts wait at most ${(cfg?.hookTimeoutSeconds ?? 90) - 30} s for Tessera, so Away mode cannot hold them longer`, "Run the installer line again to update the hooks"]);
       const stale = existsSync(p) ? staleHooks(p) : [];
       if (stale.length) rows.push([false, `${stale.length} hook${stale.length > 1 ? "s" : ""} point at a Node or script that no longer exists`, "Run: tessera-reporter install"]);
       let claude: string | null = null;

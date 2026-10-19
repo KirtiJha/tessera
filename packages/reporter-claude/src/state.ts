@@ -45,6 +45,10 @@ export interface SessionState {
   forced: { summary: string; reason: string; at: number } | null;
   /** A web filter on this network blocked the full report; detail is being withheld. */
   networkFiltered?: boolean;
+  /** The owner's away setting, as the server last said: decides how long prompts wait for Tessera. */
+  presence?: "auto" | "desk" | "away";
+  /** The agent whose prompt is open, so its next tool call can close a prompt answered in the terminal. */
+  openAskAgent?: string | null;
   /** The keep-alive process for this session, so only one runs. */
   keepalivePid?: number;
   /** When to next try a full report after a block. */

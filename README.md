@@ -96,6 +96,7 @@ Tessera never connects to an engineer's machine. The reporter posts snapshots an
 - A **plan** (`ExitPlanMode`) works the same way: approve or send back with feedback.
 - A **message** is delivered the next time the session pauses (`Stop` hook) as an instruction to continue with.
 - While a session waits at the terminal or runs a long tool call, no hooks fire. A small per-session **keep-alive** started by the first hook refreshes it every 10 s (without taking answers or messages, which stay queued for the next hook), so it stays on the wall. It exits with Claude Code.
+- **Where you answer prompts** (top bar): *At my desk* hands prompts to the terminal after ~10 s, *Away* holds them up to 10 min for the console or a phone notification. A prompt shows a countdown while it can be answered here and says plainly once the terminal has it. Re-run the installer on each machine to get the longer hook timeouts.
 - **Pause** and a reached **hard budget with enforcement** deny every new tool call (`PreToolUse` hook) with a reason the engineer sees in the terminal.
 - **Stop** refuses the session's next tool call and ends its turn (`continue: false`), handing control back to the engineer. It applies once.
 - **Hand over** gives a colleague the session for a while: they are told when it waits, and can answer, stop or pause it.

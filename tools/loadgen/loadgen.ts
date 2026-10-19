@@ -172,7 +172,7 @@ class SimSession {
         filesChanged: [],
         plan: { title: null, source: "TaskCreate", steps: [1, 2, 3, 4].map((i) => ({ id: `p${i}`, title: `Step ${i}`, status: i <= (this.seq % 5) ? "completed" : "pending", ownerAgentId: null })) },
         agents: this.agents,
-        openAsk: this.status === "waiting" ? { id: `ask-${this.seq}`, kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "Bash(pnpm test)", options: [], detail: null } : null,
+        openAsk: this.status === "waiting" ? { id: `ask-${this.seq}`, kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "Bash(pnpm test)", options: [], detail: null, answerableUntil: null, inTerminal: false } : null,
         tags: { lg_t: String(sentAt) },
         continuedFrom: null,
         activity: [],

@@ -33,6 +33,11 @@ export async function answerAsk(
   if (!rec) fail(404, "That session is no longer live.");
   if (!canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id })) fail(403, "You cannot act on this session.");
   if (!rec.openAsk || rec.openAsk.id !== body.askId) fail(409, "That prompt is no longer open.");
+  // Once the terminal shows its own dialog, nothing outside it can answer; an answer here would be recorded and never applied.
+  const until = rec.openAsk.answerableUntil ? Date.parse(rec.openAsk.answerableUntil) : null;
+  if (rec.openAsk.inTerminal || (until !== null && Date.now() > until + 3000)) {
+    fail(409, `Not answered here in time: this prompt is now waiting in the terminal${rec.hostname ? ` on ${rec.hostname}` : ""}. Answer it there.`);
+  }
   const sticky = body.scope === "session" && (body.decision === "allow" || body.decision === "approve") && body.rule ? body.rule : null;
   const payload = { decision: body.decision, text: body.text ?? null, option: body.option ?? null, ...(body.answers ? { answers: body.answers } : {}), by: p.name, via, scope: sticky ? "session" : "once", ...(sticky ? { rule: sticky } : {}) };
   const deliveryId = await fleet.queueDelivery(p.orgId, sessionId, "answer", body.askId, payload, p.userId);

@@ -183,6 +183,10 @@ export const OpenAsk = z.object({
   prompt: short(4000),
   options: z.array(short(300)).max(20).default([]),
   detail: AskDetail.nullable().default(null),
+  /** Until when an answer from Tessera can still be applied; after that the terminal shows its own dialog. */
+  answerableUntil: z.string().datetime().nullable().default(null),
+  /** Not answered from Tessera in time: the prompt is now waiting in the terminal, and only there. */
+  inTerminal: z.boolean().default(false),
 });
 export type OpenAsk = z.infer<typeof OpenAsk>;
 
@@ -287,6 +291,9 @@ export const Report = z.object({
 });
 export type Report = z.infer<typeof Report>;
 
+export const Presence = z.enum(["auto", "desk", "away"]);
+export type Presence = z.infer<typeof Presence>;
+
 export const ReportAck = z.object({
   ok: z.literal(true),
   serverTime: z.string().datetime(),
@@ -303,6 +310,12 @@ export const ReportAck = z.object({
     }),
   ),
   reporterSupport: z.enum(["ok", "outdated", "newer", "unknown"]),
+  /**
+   * The session owner's choice of how long prompts wait for Tessera before the
+   * terminal asks: "desk" (briefly, the terminal first), "away" (up to ten
+   * minutes), or "auto" (the machine's own setting).
+   */
+  presence: Presence.default("auto"),
 });
 export type ReportAck = z.infer<typeof ReportAck>;
 
