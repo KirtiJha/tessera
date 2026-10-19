@@ -80,8 +80,8 @@ else
   fail "no enrolment code. Get one on the Devices page, then run: curl -fsSL $SERVER/install.sh | sh -s -- --code <code>"
 fi
 
-# 4. Hooks into Claude Code, then a self-check.
-"$NODE" "$BIN" install
+# 4. Hooks into Claude Code (pointed at this stable Node path, not the versioned one it resolves to), then a self-check.
+TESSERA_NODE="$NODE" "$NODE" "$BIN" install
 "$NODE" "$BIN" doctor
 say ""
 say "Done. Start a Claude Code session; it appears on your Tessera wall within seconds."

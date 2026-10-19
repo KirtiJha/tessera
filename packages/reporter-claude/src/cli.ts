@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { homedir } from "node:os";
@@ -27,6 +27,21 @@ const OURS = /tessera-reporter(?:\.m?js)?\\?"?\s+hook\b/;
 type HookEntry = { type: string; command: string; args?: string[]; timeout?: number; shell?: string };
 /** Ours in either form: the old shell command "node ... hook X", or exec form with our script as the first argument. */
 const isOurs = (h: Partial<HookEntry> | undefined): boolean => !!h && ((!!h.command && OURS.test(h.command)) || (Array.isArray(h.args) && /tessera-reporter(\.m?js)?$/.test(h.args[0] ?? "") && h.args[1] === "hook"));
+
+/** The Node the hooks should run. process.execPath is the resolved binary, which on Homebrew is a versioned Cellar
+ *  path that `brew upgrade node` deletes; the installer passes the stable one it found (/opt/homebrew/bin/node). */
+function hookNode(): string {
+  const n = process.env.TESSERA_NODE;
+  try {
+    if (n && statSync(n).isFile()) {
+      accessSync(n, constants.X_OK);
+      return n;
+    }
+  } catch {
+    /* missing or not executable: fall back */
+  }
+  return process.execPath;
+}
 
 function settingsPath(): string {
   return join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
@@ -159,9 +174,10 @@ export async function main(args: string[]): Promise<void> {
       const settings: Record<string, unknown> = existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>) : {};
       const hooks = (settings.hooks ??= {}) as Record<string, Array<{ matcher?: string; hooks: HookEntry[] }>>;
       const bin = installBin();
-      // Exec form: the Node that is running this installer, spawned directly with our script. No shell on any
-      // platform, so quoting, Git Bash and PowerShell never come into it, and a private Node works too.
-      const entry = (ev: string, timeout: number): HookEntry => ({ type: "command", command: process.execPath, args: [bin, "hook", ev], timeout });
+      // Exec form: the Node that is running this installer (by its stable path), spawned directly with our script. No
+      // shell on any platform, so quoting, Git Bash and PowerShell never come into it, and a private Node works too.
+      const node = hookNode();
+      const entry = (ev: string, timeout: number): HookEntry => ({ type: "command", command: node, args: [bin, "hook", ev], timeout });
       let added = 0;
       for (const [ev, timeout] of EVENTS) {
         const list = (hooks[ev] ??= []);
