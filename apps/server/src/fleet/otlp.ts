@@ -224,6 +224,7 @@ export class OtlpSession {
     const events = this.outbox.splice(0, this.outbox.length);
     return {
       v: 1,
+      claimDeliveries: true,
       sentAt: new Date().toISOString(),
       reporter: { kind: this.kind, version: this.version, schema: "1.0" },
       machine: { hostname: clean(this.hostname, 120), machineId: clean(this.machineId, 64) },

@@ -200,7 +200,7 @@ export interface IngestResult {
  * deliveries waiting for the session. Postgres runs data-modifying CTEs as one
  * atomic statement, so this is all-or-nothing like a transaction.
  */
-export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentReport[], events: ActivityEvent[]): Promise<IngestResult> {
+export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentReport[], events: ActivityEvent[], claimDeliveries = true): Promise<IngestResult> {
   const agentRows = agents.map((a) => ({
     id: a.id, parent_id: a.parentId, kind: a.kind, type: a.type, description: a.description, model: a.model, effort: a.effort,
     status: a.status, started_at: a.startedAt, ended_at: a.endedAt, tokens: a.tokens, usage_by_model: a.usageByModel, context: a.context,
@@ -232,13 +232,13 @@ export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentR
        ON CONFLICT (org_id, session_id, id) DO NOTHING RETURNING id),
      d AS (
        UPDATE deliveries SET delivered_at = now() WHERE id IN (
-         SELECT id FROM deliveries WHERE org_id = $1 AND session_id = $2 AND delivered_at IS NULL ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED)
+         SELECT id FROM deliveries WHERE $38::boolean AND org_id = $1 AND session_id = $2 AND delivered_at IS NULL ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED)
        RETURNING id, kind, ask_id, payload, created_at)
      SELECT 'e' AS t, e.id, NULL::text AS kind, NULL::text AS ask_id, NULL::jsonb AS payload, NULL::timestamptz AS at FROM e
      UNION ALL
      SELECT 'd', d.id::text, d.kind, d.ask_id, d.payload, d.created_at FROM d
      ORDER BY at NULLS FIRST`,
-    [...sessionParams(rec), JSON.stringify(agentRows), JSON.stringify(eventRows)],
+    [...sessionParams(rec), JSON.stringify(agentRows), JSON.stringify(eventRows), claimDeliveries],
   );
   return {
     freshEventIds: r.rows.filter((x) => x.t === "e").map((x) => x.id),

@@ -50,7 +50,7 @@ test("a new organisation signs up and lands on an empty wall", async () => {
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create organisation" }).click();
   await page.waitForURL("**/app**");
-  await expect(page.getByText("Live wall").first()).toBeVisible();
+  await expect(page.getByText("Live wall").filter({ visible: true }).first()).toBeVisible();
   // Issue a device token for the reporter, as "Issue a token by hand" does.
   const r = await page.request.post("/api/admin/devices", { headers: W, data: { label: "e2e-laptop" } });
   expect(r.ok()).toBeTruthy();
@@ -73,7 +73,7 @@ test("a session waiting on a permission prompt appears live and is answered from
   await expect(card).toBeVisible();
   await card.click();
   await page.waitForURL(`**/app/sessions/${sessionId}`);
-  await expect(page.getByText("Bash(pnpm test --filter refunds)").first()).toBeVisible();
+  await expect(page.getByText("Bash(pnpm test --filter refunds)").filter({ visible: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Allow once" }).click();
   await expect(page.getByText(/session will continue/i)).toBeVisible();
   // The reporter receives the answer.
@@ -162,8 +162,12 @@ test("the console remembers the theme and the navigation width, and leaves the l
 test("the bell lists what needs a person, and ⌘K reaches a session, a page and a person", async () => {
   // A second session waits on a question; the bell counts it and opens to it.
   const waitingId = `${sessionId}-bell`;
-  const r = await report(page.request, { id: waitingId, name: "Ledger reconciliation", status: "waiting", waitReason: "question", openAsk: { id: "q-bell", kind: "question", createdAt: new Date().toISOString(), tool: "AskUserQuestion", prompt: "Which ledger should be authoritative?", options: ["GL", "Sub-ledger"] } });
+  const waiting = { id: waitingId, name: "Ledger reconciliation", status: "waiting", waitReason: "question", openAsk: { id: "q-bell", kind: "question", createdAt: new Date().toISOString(), tool: "AskUserQuestion", prompt: "Which ledger should be authoritative?", options: ["GL", "Sub-ledger"] } };
+  const r = await report(page.request, waiting);
   expect(r.ok()).toBeTruthy();
+  // Like the reporter's keep-alive: a session waiting on a person keeps reporting, so a slow server cannot let it go silent mid-test.
+  const keepalive = setInterval(() => void report(page.request, waiting).catch(() => {}), 10_000);
+  try {
   await page.goto("/app");
   const bell = page.getByRole("button", { name: /1 item needs attention/ });
   await expect(bell).toBeVisible();
@@ -198,6 +202,9 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await results.getByRole("option", { name: /^Erin Example/ }).click(); // the person, not the sessions she owns
   await page.waitForURL("**/app?q=Erin*");
   await expect(page.getByPlaceholder(/Filter by name/)).toHaveValue("Erin Example");
+  } finally {
+    clearInterval(keepalive);
+  }
 });
 
 test("the wall works from the keyboard: move, allow, select, act on several at once", async () => {

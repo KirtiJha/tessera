@@ -148,6 +148,7 @@ class SimSession {
     const sentAt = Date.now();
     return {
       v: 1,
+      claimDeliveries: true,
       sentAt: new Date(sentAt).toISOString(),
       reporter: { kind: "custom", version: "0.1.0", schema: "1.0" },
       machine: { hostname: `lg-host-${Math.floor(this.n / PER_MACHINE)}`, machineId: `lg${Math.floor(this.n / PER_MACHINE)}` },

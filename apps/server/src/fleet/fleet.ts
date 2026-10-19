@@ -333,7 +333,7 @@ export class Fleet {
     const sigs = this.agentSigs(key);
     const changedAgents = rec.agents.filter((a) => sigs.get(a.id) !== JSON.stringify(a));
     const askChanged = (existing?.openAsk?.id ?? null) !== (rec.openAsk?.id ?? null);
-    const written = await store.ingestOne(ingestPool, rec, changedAgents, report.events);
+    const written = await store.ingestOne(ingestPool, rec, changedAgents, report.events, report.claimDeliveries !== false);
     const fresh = written.freshEventIds;
     if (askChanged) await withTx((c) => this.syncAsk(c, existing, rec, now));
     for (const a of changedAgents) sigs.set(a.id, JSON.stringify(a));

@@ -58,11 +58,11 @@ test("an edit is shown as a diff, with the agent's reason and what led here", as
     },
   });
   await page.goto(`/app/sessions/${id}`);
-  await expect(page.getByText("− const retries = 0;".replace("− ", ""), { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("− const retries = 0;".replace("− ", ""), { exact: false }).filter({ visible: true }).first()).toBeVisible();
   await expect(page.getByText("const retries = 3;")).toBeVisible();
   await expect(page.getByText("Refunds need retries on 5xx.")).toBeVisible();
   await expect(page.getByText("What led here")).toBeVisible();
-  await expect(page.getByText("2 tests failed").first()).toBeVisible();
+  await expect(page.getByText("2 tests failed").filter({ visible: true }).first()).toBeVisible();
   // An edit has no pattern worth remembering as a command, but its folder is offered.
   await page.getByRole("button", { name: "More ways to allow" }).click();
   await expect(page.getByText("Edit(/work/payments/src/**)")).toBeVisible();

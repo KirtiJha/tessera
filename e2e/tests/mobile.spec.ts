@@ -64,7 +64,7 @@ test("the console works on a phone", async ({ page }) => {
 
   // The wall: the side menu is folded away and the session fits.
   await page.goto("/app");
-  await expect(page.getByText("Refund retries for the payments").first()).toBeVisible();
+  await expect(page.getByText("Refund retries for the payments").filter({ visible: true }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Policies" })).toBeHidden();
   await fitsTheScreen(page);
 
