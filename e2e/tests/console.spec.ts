@@ -209,8 +209,8 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await expect(page.getByPlaceholder(/Filter by name/)).toHaveValue("Erin Example");
   } finally {
     clearInterval(keepalive);
-    // Let a request still being delayed finish here, not in the next test.
-    await page.unrouteAll({ behavior: "wait" });
+    // A request still being delayed may belong to a page already left: drop it rather than wait for it.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });
 
