@@ -111,9 +111,30 @@ test("a running session shows what it is doing now", async ({ page }) => {
   const id = `${run}-run`;
   await report(page.request, {
     id, name: "Redaction audit", status: "running",
-    activity: [{ id: "t9", ts: new Date().toISOString(), tool: "Bash", summary: "Bash(pnpm lint)", status: "running" }],
+    activity: [
+      { id: "t8", ts: new Date(Date.now() - 30_000).toISOString(), tool: "Bash", summary: "Bash(pnpm test)", status: "failed", durationMs: 4200, error: "exit 1: 3 tests failed" },
+      { id: "t9", ts: new Date().toISOString(), tool: "Bash", summary: "Bash(pnpm lint)", status: "running" },
+    ],
   });
   await page.goto("/app");
   const card = page.locator("a", { hasText: "Redaction audit" }).first();
   await expect(card.getByText("Bash(pnpm lint)")).toBeVisible();
+  // On the session page a tool call opens to show the whole thing: tool, timing, outcome and the full error.
+  await card.click();
+  const activity = page.locator("section", { has: page.getByRole("heading", { name: /^Activity/ }) }).first();
+  const failed = activity.getByRole("button", { name: /pnpm test/ });
+  await expect(failed).toHaveAttribute("aria-expanded", "false");
+  await failed.click();
+  await expect(failed).toHaveAttribute("aria-expanded", "true");
+  const details = activity.locator("dl").first();
+  await expect(details).toContainText("Tool");
+  await expect(details).toContainText("Took");
+  await expect(details).toContainText("4.2s");
+  await expect(details).toContainText("failed");
+  await expect(details).toContainText("exit 1: 3 tests failed");
+  // Failed-only shows the one failure; All brings the running call back.
+  await activity.getByRole("button", { name: /^Failed/ }).click();
+  await expect(activity.locator("li")).toHaveCount(1);
+  await activity.getByRole("button", { name: /^All/ }).click();
+  await expect(activity.locator("li")).toHaveCount(2);
 });

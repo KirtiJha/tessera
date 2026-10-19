@@ -1,7 +1,7 @@
-import type { Action, AskDetail, RiskFlag } from "@tessera/contract";
+import type { Action, AgentView, AskDetail, RiskFlag } from "@tessera/contract";
 import { AlertTriangle, Check, ChevronDown, Loader2, ShieldAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ago } from "../lib/format";
+import { ago, fmtTime } from "../lib/format";
 
 /** A flag an approver should see before deciding, coloured by how much it matters. */
 export function RiskChips({ flags, compact = false }: { flags: RiskFlag[]; compact?: boolean }) {
@@ -119,25 +119,112 @@ function StatusMark({ status }: { status: Action["status"] }) {
   return <X size={12} className="text-rose-400" />;
 }
 
-/** The last tool calls, newest first, so an approver sees what led to the prompt and a watcher sees what is happening. */
-export function ActionList({ actions, now, limit, title }: { actions: Action[]; now: number; limit?: number; title?: string }) {
-  const list = [...actions].reverse().slice(0, limit ?? actions.length);
-  if (!list.length) return <p className="text-[12.5px] text-fog">No tool calls reported yet.</p>;
+/** How long a finished call took, or null while it runs or when the reporter did not say. */
+function took(a: Action): string | null {
+  if (a.durationMs == null) return null;
+  return a.durationMs >= 1000 ? `${(a.durationMs / 1000).toFixed(1)}s` : `${a.durationMs}ms`;
+}
+
+const RESULT: Record<Action["status"], string> = { running: "still running", ok: "succeeded", failed: "failed", denied: "denied by policy or a person" };
+
+type ActionFilter = "all" | "failed" | "running";
+
+/**
+ * The last tool calls, newest first, so an approver sees what led to the prompt and a watcher sees what is happening.
+ * A row opens to the whole call: tool, agent, when, how long, and the full summary and error.
+ */
+export function ActionList({ actions, agents = [], now, limit, title, filterable = false }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean }) {
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const [all, setAll] = useState(false);
+  const [filter, setFilter] = useState<ActionFilter>("all");
+  const newestFirst = useMemo(() => [...actions].reverse(), [actions]);
+  const counts = useMemo(() => ({ all: actions.length, failed: actions.filter((a) => a.status === "failed" || a.status === "denied").length, running: actions.filter((a) => a.status === "running").length }), [actions]);
+  const matching = filter === "all" ? newestFirst : filter === "failed" ? newestFirst.filter((a) => a.status === "failed" || a.status === "denied") : newestFirst.filter((a) => a.status === "running");
+  const list = all || !limit ? matching : matching.slice(0, limit);
+  const agentName = (id: string | null) => {
+    const a = id ? agents.find((x) => x.id === id) : undefined;
+    return a ? (a.kind === "orchestrator" ? "orchestrator" : (a.type ?? a.kind)) : null;
+  };
+  const toggle = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  if (!actions.length) return <p className="text-[12.5px] text-fog">No tool calls reported yet.</p>;
+  const chip = (f: ActionFilter, label: string) => (
+    <button key={f} type="button" onClick={() => setFilter(f)} aria-pressed={filter === f} className={`rounded-md px-2 py-0.5 ${filter === f ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>
+      {label} <span className="text-ash">{counts[f]}</span>
+    </button>
+  );
   return (
     <div>
-      {title ? <div className="mb-1.5 text-[12px] font-medium text-mist">{title}</div> : null}
-      <ul className="divide-y divide-line rounded-lg border border-line bg-ink">
-        {list.map((a) => (
-          <li key={a.id} className="flex items-start gap-2 px-2.5 py-1.5 text-[12px]">
-            <span className="mt-0.5 shrink-0"><StatusMark status={a.status} /></span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-mono text-mist" title={a.summary}>{a.summary}</span>
-              {a.error ? <span className="block truncate text-rose-400" title={a.error}>{a.error}</span> : null}
-            </span>
-            <span className="shrink-0 text-[11px] text-fog">{a.status === "running" ? `${ago(a.ts, now)} ago` : a.durationMs != null ? (a.durationMs >= 1000 ? `${(a.durationMs / 1000).toFixed(1)}s` : `${a.durationMs}ms`) : ago(a.ts, now)}</span>
-          </li>
-        ))}
-      </ul>
+      {title || (filterable && (counts.failed || counts.running)) ? (
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          {title ? <div className="text-[12px] font-medium text-mist">{title}</div> : <span />}
+          {filterable && (counts.failed || counts.running) ? (
+            <div className="flex items-center gap-0.5 text-[11.5px]">
+              {chip("all", "All")}
+              {counts.failed ? chip("failed", "Failed") : null}
+              {counts.running ? chip("running", "Running") : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {list.length ? (
+        <ul className="divide-y divide-line rounded-lg border border-line bg-ink">
+          {list.map((a) => {
+            const isOpen = open.has(a.id);
+            const agent = agentName(a.agentId);
+            const when = a.status === "running" ? `${ago(a.ts, now)} ago` : (took(a) ?? ago(a.ts, now));
+            return (
+              <li key={a.id}>
+                <button type="button" onClick={() => toggle(a.id)} aria-expanded={isOpen} aria-controls={`action-${a.id}`} className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-slate-1 focus:outline-none focus-visible:bg-slate-1">
+                  <span className="mt-0.5 shrink-0"><StatusMark status={a.status} /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block font-mono text-mist ${isOpen ? "whitespace-pre-wrap break-words" : "truncate"}`}>{a.summary}</span>
+                    {a.error && !isOpen ? <span className="block truncate text-rose-400">{a.error}</span> : null}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-fog">{when}</span>
+                  <ChevronDown size={12} className={`mt-0.5 shrink-0 text-ash transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                </button>
+                {isOpen ? (
+                  <dl id={`action-${a.id}`} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t border-line bg-slate-1 px-2.5 py-2 pl-8 text-[11.5px] text-mist">
+                    <dt className="text-ash">Tool</dt>
+                    <dd className="font-mono">{a.tool}</dd>
+                    {agent ? (
+                      <>
+                        <dt className="text-ash">Agent</dt>
+                        <dd>{agent}</dd>
+                      </>
+                    ) : null}
+                    <dt className="text-ash">Started</dt>
+                    <dd>{fmtTime(a.ts)} · {ago(a.ts, now)}</dd>
+                    <dt className="text-ash">Took</dt>
+                    <dd>{a.status === "running" ? "still running" : (took(a) ?? "not reported")}</dd>
+                    <dt className="text-ash">Result</dt>
+                    <dd>{RESULT[a.status]}</dd>
+                    {a.error ? (
+                      <>
+                        <dt className="text-ash">Error</dt>
+                        <dd className="whitespace-pre-wrap break-words font-mono text-rose-400">{a.error}</dd>
+                      </>
+                    ) : null}
+                  </dl>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-[12.5px] text-fog">No {filter} tool calls.</p>
+      )}
+      {limit && matching.length > limit ? (
+        <button type="button" onClick={() => setAll(!all)} className="mt-1.5 text-[12px] text-fog hover:text-snow">
+          {all ? "Show fewer" : `Show all ${matching.length}`}
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -63,6 +63,7 @@ function AgentDetail({ a }: { a: AgentView }) {
         <span>{modelShort(a.model)}{a.effort ? ` · ${a.effort}` : ""}</span>
         <span>{a.status}</span>
         <span>{fmtTokens(a.tokens.input + a.tokens.output + a.tokens.cacheRead + a.tokens.cacheWrite)} tokens · {fmtUsd(a.costUsd, 4)}</span>
+        {a.context ? <span title={`${fmtTokens(a.context.used)} of ${fmtTokens(a.context.window)}`}>{Math.round((a.context.used / a.context.window) * 100)}% context</span> : null}
       </div>
       {a.description ? <p className="text-snow">{a.description}</p> : null}
       {a.failure ? (
@@ -73,6 +74,7 @@ function AgentDetail({ a }: { a: AgentView }) {
         </div>
       ) : null}
       {tools.length ? <div className="flex flex-wrap gap-1.5">{tools.map(([t, n]) => <span key={t} className="rounded-md border border-line-2 px-1.5 py-0.5 text-[11.5px] text-mist">{t} <span className="text-fog">×{n}</span></span>)}</div> : null}
+      {a.skills.length ? <div><div className="text-[11.5px] text-fog">Skills</div><div className="mt-1 flex flex-wrap gap-1.5">{a.skills.map((k) => <span key={k} className="rounded-md bg-violet-400/15 px-1.5 py-0.5 text-[11.5px] text-violet-400">{k}</span>)}</div></div> : null}
       {a.promptExcerpt ? <div><div className="text-[11.5px] text-fog">Task</div><p className="mt-0.5 text-mist">{a.promptExcerpt}</p></div> : null}
       {a.answerExcerpt ? <div><div className="text-[11.5px] text-fog">Answer</div><p className="mt-0.5 text-mist">{a.answerExcerpt}</p></div> : null}
     </div>
@@ -195,7 +197,7 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
           <motion.p key="none" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] text-fog">Nothing is waiting for an answer right now.</motion.p>
         )}
       </AnimatePresence>
-      {ask && s.activity.length ? <ActionList actions={s.activity} now={now} limit={6} title="What led here" /> : null}
+      {ask && s.activity.length ? <ActionList actions={s.activity} agents={s.agents} now={now} limit={6} title="What led here" /> : null}
 
       <div>
         <div className="mb-1.5 text-[12px] font-medium text-mist">Send a message</div>
@@ -307,9 +309,18 @@ export function SessionPage() {
               {s.tags.paused ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400">paused</span> : null}
               {s.stopRequested ? <span className="rounded-md bg-rose-600/20 px-2 py-0.5 text-[11.5px] font-medium text-rose-400">stopping</span> : null}
               {s.assignee ? <span className="rounded-md bg-violet-400/15 px-2 py-0.5 text-[11.5px] font-medium text-violet-400">handed to {s.assignee.name}</span> : null}
+              {s.continuedFrom ? <Link to={`/app/sessions/${encodeURIComponent(s.continuedFrom)}`} className="rounded-md bg-slate-2 px-2 py-0.5 text-[11.5px] font-medium text-mist hover:text-snow">continues an earlier session →</Link> : null}
             </div>
             <div className="mt-1 break-words text-[13px] text-fog">
               {s.ownerName ?? "Unassigned"}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.cwd ? ` · ${s.cwd}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}{s.git?.worktree ? " (worktree)" : ""}
+              {s.git && (s.git.ahead || s.git.behind || s.git.modified) ? (
+                <span className="ml-2 inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-[12px]" title="Commits ahead and behind the upstream branch, and files modified since the last commit">
+                  {s.git.ahead ? <span className="text-teal-300">↑{s.git.ahead}</span> : null}
+                  {s.git.behind ? <span className="text-amber-400">↓{s.git.behind}</span> : null}
+                  {s.git.modified ? <span className="text-mist">{s.git.modified} modified</span> : null}
+                </span>
+              ) : null}
+              <span className="ml-2 whitespace-nowrap text-[12px] text-ash" title={`Reported by ${s.reporter.kind} ${s.reporter.version}`}>{s.reporter.kind === "claude-code-hooks" ? "reporter" : s.reporter.kind} {s.reporter.version}</span>
             </div>
             <div className="mt-2 text-[13px] font-medium" style={{ color: k.color }}>
               {k.label}{kind === "stale" ? ` · last report ${ago(s.lastSeenAt, now)}` : ""}{kind === "done" && s.endReason ? ` · ${s.endReason}` : ""}
@@ -358,7 +369,7 @@ export function SessionPage() {
           </Panel>
 
           <Panel title={s.activity.length ? `Activity · ${s.activity.filter((a) => a.status === "running").length ? "working now" : "last tool calls"}` : "Activity"}>
-            <ActionList actions={s.activity} now={now} limit={12} />
+            <ActionList actions={s.activity} agents={s.agents} now={now} limit={12} filterable />
           </Panel>
 
           <Panel title={s.plan?.title ? `Plan · ${s.plan.title}` : "Plan"}>
