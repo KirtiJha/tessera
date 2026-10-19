@@ -69,15 +69,19 @@ export function Replay({ sessionId, live }: { sessionId: string; live: boolean }
     };
   }, [sessionId]);
 
+  // A live session's end is "now", fixed when its timeline loads: recomputing it on every render would
+  // move the end under the playhead and stop playback the moment it started.
+  const loadedAt = useMemo(() => (tl ? Date.now() : 0), [tl]);
   const t0 = tl ? Date.parse(tl.startedAt) : 0;
-  const t1 = tl ? Math.max(t0 + 1000, Date.parse(tl.endedAt ?? (live ? new Date().toISOString() : tl.lastSeenAt))) : 1;
+  const t1 = tl ? Math.max(t0 + 1000, tl.endedAt ? Date.parse(tl.endedAt) : live ? loadedAt : Date.parse(tl.lastSeenAt)) : 1;
   const span = t1 - t0;
   const x = useCallback((iso: string) => Math.min(1, Math.max(0, (Date.parse(iso) - t0) / span)), [t0, span]);
 
-  // Start at the end, so the first view is the whole story.
+  // Start at the end, so the first view is the whole story. Once per loaded timeline, never on a re-render.
   useEffect(() => {
     if (tl) setT(span);
-  }, [tl, span]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tl]);
 
   useEffect(() => {
     if (!playing) return;

@@ -175,6 +175,7 @@ class SimSession {
         tags: { lg_t: String(sentAt) },
         continuedFrom: null,
         activity: [],
+        toolCalls: {},
       },
       events: this.pending.slice(),
     };
