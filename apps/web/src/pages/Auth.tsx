@@ -4,18 +4,21 @@ import { Lockup } from "../components/Logo";
 import { Button, Field, Input } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { ThemeScope } from "../lib/theme";
 
 function Frame({ title, lead, children, foot }: { title: string; lead?: string; children?: React.ReactNode; foot?: React.ReactNode }) {
   return (
-    <div className="flex min-h-full items-center justify-center bg-ink px-4 py-12">
-      <div className="w-full max-w-[420px]">
-        <Link to="/" className="inline-flex"><Lockup size={30} textClass="text-[24px]" /></Link>
-        <h1 className="mt-8 font-display text-[30px] font-semibold tracking-[-0.03em]">{title}</h1>
-        {lead ? <p className="mt-2 text-[14.5px] leading-relaxed text-fog">{lead}</p> : null}
-        <div className="mt-7">{children}</div>
-        {foot ? <div className="mt-6 text-[14px] text-fog">{foot}</div> : null}
+    <ThemeScope>
+      <div className="flex min-h-full items-center justify-center bg-ink px-4 py-12">
+        <div className="w-full max-w-[420px]">
+          <Link to="/" className="inline-flex"><Lockup size={30} textClass="text-[24px]" /></Link>
+          <h1 className="mt-8 font-display text-[30px] font-semibold tracking-[-0.03em]">{title}</h1>
+          {lead ? <p className="mt-2 text-[14.5px] leading-relaxed text-fog">{lead}</p> : null}
+          <div className="mt-7">{children}</div>
+          {foot ? <div className="mt-6 text-[14px] text-fog">{foot}</div> : null}
+        </div>
       </div>
-    </div>
+    </ThemeScope>
   );
 }
 

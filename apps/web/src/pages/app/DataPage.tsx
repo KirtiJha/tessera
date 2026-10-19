@@ -181,7 +181,7 @@ export function DataPage() {
       </Panel>
 
       <Modal open={!!erase} onClose={() => setErase(null)} title={`Erase ${erase?.name ?? ""}`}>
-        <div className="flex gap-3 rounded-lg border border-rose-600/50 bg-[#2a1a1e] p-3 text-[13px] text-mist"><AlertTriangle size={18} className="shrink-0 text-rose-400" /> This cannot be undone. Their sessions, devices and API keys are deleted, and their account is kept only as "Erased person" so the audit log still reads.</div>
+        <div className="flex gap-3 rounded-lg border border-rose-600/50 bg-rose-600/10 p-3 text-[13px] text-mist"><AlertTriangle size={18} className="shrink-0 text-rose-400" /> This cannot be undone. Their sessions, devices and API keys are deleted, and their account is kept only as "Erased person" so the audit log still reads.</div>
         <Field label={`Type ${erase?.email ?? ""} to confirm`}><Textarea rows={1} value={confirmText} onChange={(e) => setConfirmText(e.target.value)} className="mt-1 font-mono text-[13px]" /></Field>
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={() => setErase(null)}>Cancel</Button>

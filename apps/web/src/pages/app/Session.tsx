@@ -66,7 +66,7 @@ function AgentDetail({ a }: { a: AgentView }) {
       </div>
       {a.description ? <p className="text-snow">{a.description}</p> : null}
       {a.failure ? (
-        <div className="rounded-lg border border-rose-600/50 bg-[#2a1a1e] p-3">
+        <div className="rounded-lg border border-rose-600/50 bg-rose-600/10 p-3">
           <div className="text-[12px] font-medium text-rose-400">Failed · {a.failure.class.replace("_", " ")}{a.failure.tool ? ` · ${a.failure.tool}` : ""}</div>
           <div className="mt-1 text-mist">{a.failure.summary}</div>
           {a.failure.outputTail.length ? <pre className="mt-2 max-h-40 overflow-auto rounded bg-ink p-2 font-mono text-[11.5px] text-fog">{a.failure.outputTail.join("\n")}</pre> : null}

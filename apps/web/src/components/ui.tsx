@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "amber";
 
@@ -110,7 +111,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
         <AnimatePresence>
           {list.map((t) => (
-            <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className={`rounded-lg border px-4 py-2.5 text-[13px] shadow-lg ${t.tone === "error" ? "border-rose-600/60 bg-[#2a1a1e] text-rose-400" : t.tone === "info" ? "border-line-2 bg-slate-2 text-snow" : "border-teal-700 bg-[#122826] text-teal-300"}`}>
+            <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className={`rounded-lg border bg-slate-1 px-4 py-2.5 text-[13px] shadow-lg ${t.tone === "error" ? "border-rose-600/60 text-rose-400" : t.tone === "info" ? "border-line-2 text-snow" : "border-teal-700 text-teal-300"}`}>
               {t.text}
             </motion.div>
           ))}
@@ -130,6 +131,148 @@ export function Empty({ title, body, action }: { title: string; body: string; ac
       <div className="text-[16px] font-semibold text-snow">{title}</div>
       <p className="mt-1.5 max-w-md text-[13.5px] leading-relaxed text-fog">{body}</p>
       {action ? <div className="mt-5">{action}</div> : null}
+    </div>
+  );
+}
+
+// ---- tooltip ----------------------------------------------------------------
+/** A label beside its child on hover or focus. Rendered at body level, so a scrolling or clipped parent cannot hide it. */
+export function Tooltip({ label, side = "right", children }: { label: string; side?: "right" | "bottom"; children: ReactNode }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const timer = useRef(0);
+  const show = (el: HTMLElement) => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      setPos(side === "right" ? { x: r.right + 8, y: r.top + r.height / 2 } : { x: r.left + r.width / 2, y: r.bottom + 8 });
+    }, 120);
+  };
+  const hide = useCallback(() => {
+    window.clearTimeout(timer.current);
+    setPos(null);
+  }, []);
+  useEffect(() => {
+    if (!pos) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hide();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pos, hide]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return (
+    <span className="block" onMouseEnter={(e) => show(e.currentTarget)} onMouseLeave={hide} onFocus={(e) => show(e.currentTarget)} onBlur={hide}>
+      {children}
+      {pos
+        ? createPortal(
+            <span role="tooltip" className="pointer-events-none fixed z-[70] whitespace-nowrap rounded-md border border-line-2 bg-slate-2 px-2 py-1 text-[12px] text-snow shadow-lg" style={{ left: pos.x, top: pos.y, transform: side === "right" ? "translateY(-50%)" : "translateX(-50%)" }}>
+              {label}
+            </span>,
+            document.body,
+          )
+        : null}
+    </span>
+  );
+}
+
+// ---- menu -------------------------------------------------------------------
+const MenuClose = createContext<() => void>(() => {});
+
+/** A button that opens a small menu under itself. Escape, a click outside, a resize or choosing an item closes it; arrow keys move between items. */
+export function Menu({ button, label, children, align = "end", width = 240, className = "" }: { button: ReactNode; label: string; children: ReactNode; align?: "start" | "end"; width?: number; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const toggle = () => {
+    if (open) return close();
+    const r = trigger.current!.getBoundingClientRect();
+    const left = align === "end" ? r.right - width : r.left;
+    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(left, window.innerWidth - width - 8)) });
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const items = () => [...(panel.current?.querySelectorAll<HTMLElement>('[role="menuitem"], [role="radio"]') ?? [])];
+    items()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        close();
+        trigger.current?.focus();
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const list = items();
+        if (!list.length) return;
+        e.preventDefault();
+        const i = list.indexOf(document.activeElement as HTMLElement);
+        list[(i + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length]!.focus();
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!panel.current?.contains(t) && !trigger.current?.contains(t)) close();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("resize", close);
+    };
+  }, [open, close]);
+  return (
+    <MenuClose.Provider value={close}>
+      <button ref={trigger} type="button" aria-haspopup="menu" aria-expanded={open} aria-label={label} onClick={toggle} className={`inline-flex items-center justify-center rounded-full ${className}`}>
+        {button}
+      </button>
+      {open
+        ? createPortal(
+            <motion.div ref={panel} role="menu" aria-label={label} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.12 }} className="fixed z-50 rounded-xl border border-line-2 bg-slate-1 p-1.5 shadow-2xl" style={{ top: pos.top, left: pos.left, width }}>
+              {children}
+            </motion.div>,
+            document.body,
+          )
+        : null}
+    </MenuClose.Provider>
+  );
+}
+
+export function MenuItem({ icon, children, onSelect, tone = "default" }: { icon?: ReactNode; children: ReactNode; onSelect: () => void; tone?: "default" | "danger" }) {
+  const close = useContext(MenuClose);
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        close();
+        onSelect();
+      }}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] focus:outline-none focus-visible:bg-slate-2 ${tone === "danger" ? "text-rose-400 hover:bg-rose-600/10" : "text-mist hover:bg-slate-2 hover:text-snow"}`}
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
+  );
+}
+
+export function MenuHeading({ children }: { children: ReactNode }) {
+  return <div className="px-2.5 py-2">{children}</div>;
+}
+
+export function MenuSeparator() {
+  return <div role="separator" className="my-1.5 border-t border-line" />;
+}
+
+// ---- segmented control ------------------------------------------------------
+/** One choice among a few, shown as adjoining buttons. A radio group to assistive technology. */
+export function Segmented<T extends string>({ value, onChange, options, label, size = "md", className = "" }: { value: T; onChange: (v: T) => void; options: { value: T; label: string; icon?: ReactNode }[]; label: string; size?: "sm" | "md"; className?: string }) {
+  return (
+    <div role="radiogroup" aria-label={label} className={`inline-flex items-center gap-1 rounded-lg border border-line bg-ink-2 p-1 ${className}`}>
+      {options.map((o) => (
+        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} onClick={() => onChange(o.value)} className={`inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md transition-colors ${size === "sm" ? "h-7 px-2 text-[12.5px]" : "h-8 px-3 text-[13px]"} ${value === o.value ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>
+          {o.icon}
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

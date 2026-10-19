@@ -7,6 +7,7 @@ import { KIND, SessionCard, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
 import { Empty } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
+import { usePref } from "../../lib/prefs";
 import { sessionKind, sessionLabel, useFleet, useSessions, type SessionKind } from "../../lib/fleet";
 import { ago, fmtTokens, fmtUsd } from "../../lib/format";
 import { buildRows, CARD_GAP, columnsFor, estimateRow } from "../../lib/wallLayout";
@@ -55,8 +56,11 @@ export function Wall() {
   const { me } = useAuth();
   const now = useNow();
   const [q, setQ] = useState("");
-  const [only, setOnly] = useState<SessionKind | "all" | "mine">("all");
-  const [group, setGroup] = useState<"state" | "person">("state");
+  // Remembered per browser; a stale or hand-edited value falls back to the default.
+  const [onlyPref, setOnly] = usePref<SessionKind | "all" | "mine">("wall.only", "all");
+  const only = onlyPref === "all" || onlyPref === "mine" || (ORDER as readonly string[]).includes(onlyPref) ? onlyPref : "all";
+  const [groupPref, setGroup] = usePref<"state" | "person">("wall.group", "state");
+  const group = groupPref === "person" ? "person" : "state";
   const firstSeen = useFirstSeen(sessions);
 
   const filtered = useMemo(() => {

@@ -34,6 +34,42 @@
   --ease-tile: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+:root {
+  color-scheme: dark;
+}
+
+/* The light theme. Token names describe the dark palette (ink is the page, snow is
+   the text) and this block remaps them, so under it `ink` means "page background",
+   not "near-black". The accent 400s darken too, so dark-on-accent text (primary
+   buttons, "Allow once" chips) reads as light-on-dark. index.html sets data-theme
+   before first paint; lib/theme.tsx keeps it current. The landing page is never
+   under it: it paints with .light and text-ink on paper. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-ink: #f6f5f0;
+  --color-ink-2: #efeee8;
+  --color-slate-1: #ffffff;
+  --color-slate-2: #e9e7df;
+  --color-slate-3: #dedbd1;
+  --color-line: #dcd9cf;
+  --color-line-2: #c9c5b8;
+  --color-fog: #6b7682;
+  --color-mist: #3d4752;
+  --color-snow: #101418;
+  --color-ash: #727b86;
+
+  --color-teal-300: #0b5c56;
+  --color-teal-400: #0f766e;
+  --color-amber-400: #b45309;
+  --color-amber-500: #92400e;
+  --color-rose-400: #c93a4e;
+  --color-rose-600: #a32638;
+  --color-violet-400: #6d4fd8;
+
+  --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 24px -16px rgba(16, 20, 24, 0.25);
+}
+
 html,
 body,
 #root {

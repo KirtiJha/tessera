@@ -119,3 +119,42 @@ test("replay, analytics and the audit log show what happened", async () => {
   await page.getByRole("button", { name: "Verify chain" }).click();
   await expect(page.getByText(/Chain intact/)).toBeVisible();
 });
+
+test("the console remembers the theme and the navigation width, and leaves the landing page alone", async () => {
+  await page.goto("/app");
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme ?? "dark");
+  const navWidth = () => page.locator('aside[aria-label="Main"]:visible').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  expect(await theme()).toBe("dark");
+  expect(await navWidth()).toBe(220);
+  // Light, from the user menu.
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("radio", { name: "Light" }).click();
+  await expect.poll(theme).toBe("light");
+  await page.keyboard.press("Escape");
+  // The icon rail keeps every destination one click away, with its name on hover.
+  await page.getByRole("button", { name: "Collapse navigation" }).click();
+  await expect.poll(navWidth).toBe(60);
+  await page.getByRole("link", { name: "History" }).hover();
+  await expect(page.getByRole("tooltip")).toHaveText("History");
+  // Both survive a reload: the theme is applied before React runs, so nothing flashes dark.
+  await page.reload();
+  await expect.poll(theme).toBe("light");
+  await expect.poll(navWidth).toBe(60);
+  // "System" follows the operating system.
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("radio", { name: "System" }).click();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(theme).toBe("dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(theme).toBe("light");
+  await page.keyboard.press("Escape");
+  // The landing page paints light-on-paper by itself and never carries the console's theme.
+  await page.goto("/");
+  await expect.poll(theme).toBe("dark");
+  // Back to the defaults from the Account page, for whoever reads this browser next.
+  await page.goto("/app/settings");
+  await page.getByRole("radio", { name: "Dark" }).click();
+  await page.getByRole("radio", { name: "Expanded" }).click();
+  await expect.poll(theme).toBe("dark");
+  await expect.poll(navWidth).toBe(220);
+});

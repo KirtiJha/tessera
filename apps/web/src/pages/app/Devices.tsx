@@ -70,7 +70,7 @@ export function Devices() {
       <p className="mt-1 text-[14px] text-fog">Each machine that reports to Tessera has its own token, bound to you. Revoke one and its reporter stops at once.</p>
 
       {welcome && (!devices || devices.length === 0) ? (
-        <div className="mt-5 rounded-xl border border-teal-700 bg-[#122826] p-5">
+        <div className="mt-5 rounded-xl border border-teal-700 bg-teal-600/10 p-5">
           <div className="text-[16px] font-semibold text-teal-300">Welcome. Let's get your first session on the wall.</div>
           <p className="mt-1 text-[13.5px] text-mist">Get a code, paste one line on the machine you run Claude Code on, start a session. About a minute.</p>
         </div>

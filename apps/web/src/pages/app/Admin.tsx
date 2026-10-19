@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { NavWidthPicker, ThemePicker } from "../../components/Prefs";
 import { Button, Field, Input, Modal, Panel, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
@@ -130,6 +131,20 @@ export function Account() {
   return (
     <div className="mx-auto max-w-lg p-3 sm:p-5">
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Account</h1>
+      <Panel title="Preferences" className="mt-5">
+        <div className="space-y-5">
+          <div>
+            <div className="mb-1.5 text-[13px] font-medium text-mist">Theme</div>
+            <ThemePicker />
+            <p className="mt-1.5 text-[12px] text-fog">System follows your operating system. Saved in this browser only.</p>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[13px] font-medium text-mist">Navigation</div>
+            <NavWidthPicker />
+            <p className="mt-1.5 text-[12px] text-fog">On wide screens. Phones always use the slide-in menu.</p>
+          </div>
+        </div>
+      </Panel>
       <Panel title="Change password" className="mt-5">
         <form onSubmit={submit} className="space-y-4">
           <Field label="Current password"><Input type="password" required value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></Field>

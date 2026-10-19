@@ -250,7 +250,7 @@ export function Policies() {
 
       <AnimatePresence>
         {dirty ? (
-          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="sticky top-2 z-20 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-[#231d10]/95 px-4 py-3 shadow-lg backdrop-blur">
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="sticky top-2 z-20 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-ink-2/95 px-4 py-3 shadow-lg backdrop-blur">
             <span className="text-[13px] text-amber-400">{restoredFrom ? `Version ${restoredFrom} loaded — not in force until you save.` : "Unsaved changes — not in force until you save."}</span>
             <Input aria-label="What changed" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What changed (optional)" className="h-9 max-w-xs flex-1 text-[13px]" />
             <div className="ml-auto flex gap-2">

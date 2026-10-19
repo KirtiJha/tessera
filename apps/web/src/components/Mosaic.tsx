@@ -63,7 +63,7 @@ export function Mosaic({ cols = 12, rows = 7 }: { cols?: number; rows?: number }
         initial={{ opacity: 0, y: 12, scale: 0.96 }}
         animate={notice ? { opacity: 1, y: 0, scale: 1 } : {}}
         transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
-        className="absolute rounded-xl border border-amber-400/60 bg-[#101418] px-4 py-3 text-left text-snow shadow-[0_24px_48px_-24px_rgba(0,0,0,0.6)]"
+        className="absolute rounded-xl border border-amber-400/60 bg-ink-2 px-4 py-3 text-left text-snow shadow-[0_24px_48px_-24px_rgba(0,0,0,0.6)]"
         style={{ left: `${((waitingTile % cols) / cols) * 100 + 100 / cols + 1.5}%`, top: `${(Math.floor(waitingTile / cols) / rows) * 100 - 6}%`, minWidth: 220 }}
       >
         <div className="flex items-center gap-2 text-[11px] font-medium text-amber-400">
