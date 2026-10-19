@@ -62,15 +62,20 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
 
-  // Fresh each time it opens.
+  // Fresh each time it opens, and only then: the people list arriving later must not wipe what was typed.
   useEffect(() => {
     if (!open) return;
     setQ("");
     setActive(0);
     setEnded([]);
     const t = setTimeout(() => input.current?.focus(), 0);
-    if (!people) void api.get<{ people: Person[] }>("/api/fleet/people").then((r) => setPeople(r.people)).catch(() => setPeople([]));
     return () => clearTimeout(t);
+  }, [open]);
+
+  // People, once, the first time the palette opens.
+  useEffect(() => {
+    if (!open || people) return;
+    void api.get<{ people: Person[] }>("/api/fleet/people").then((r) => setPeople(r.people)).catch(() => setPeople([]));
   }, [open, people]);
 
   // Ended sessions, from the server, a moment after typing stops.

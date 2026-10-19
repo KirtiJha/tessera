@@ -51,7 +51,7 @@ export function Textarea({ className = "", ...rest }: React.TextareaHTMLAttribut
 
 export function Panel({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-xl border border-line bg-slate-1 ${className}`}>
+    <section className={`min-w-0 rounded-xl border border-line bg-slate-1 ${className}`}>
       {title ? (
         <header className="flex items-center justify-between border-b border-line px-4 py-3">
           <h2 className="text-[14px] font-semibold text-snow">{title}</h2>
