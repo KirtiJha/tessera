@@ -1,5 +1,6 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import http from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,7 +93,13 @@ function arg(args: string[], name: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/** A proxy is set in the environment (often the only way out of a corporate network). */
+const PROXY = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy;
+/** Node's fetch ignores HTTPS_PROXY unless asked; setGlobalProxyFromEnv exists only in newer Node. */
+const canProxy = typeof (http as { setGlobalProxyFromEnv?: unknown }).setGlobalProxyFromEnv === "function";
+
 export async function main(args: string[]): Promise<void> {
+  if (PROXY && canProxy) (http as unknown as { setGlobalProxyFromEnv: () => void }).setGlobalProxyFromEnv();
   const cmd = args[0];
   switch (cmd) {
     case "hook": {
@@ -202,6 +209,7 @@ export async function main(args: string[]): Promise<void> {
       const rows: Array<[boolean | null, string, string?]> = [];
       const major = Number(process.versions.node.split(".")[0]);
       rows.push([major >= 20, `Node ${process.version} at ${process.execPath}`, major >= 20 ? undefined : "Node 20 or newer is needed; rerun the installer, which fetches a private copy."]);
+      if (PROXY) rows.push([canProxy, canProxy ? "Using the proxy from HTTPS_PROXY" : `A proxy is set, but Node ${process.version} cannot use it`, canProxy ? undefined : "This Node is too old to send requests through a proxy. Install the current Node from nodejs.org, then rerun the installer."]);
       const cfg = loadConfig();
       rows.push([!!cfg, cfg ? `Enrolled with ${cfg.serverUrl} (${CONFIG_PATH})` : "Not enrolled", cfg ? undefined : "Get an enrolment code on the Devices page and run the installer with --code."]);
       if (cfg) {
