@@ -118,7 +118,7 @@ function TopBar({ onMenu, onSearch, now }: { onMenu: () => void; onSearch: () =>
       <button onClick={onMenu} aria-label="Open menu" className="-ml-1 inline-flex h-10 w-10 items-center justify-center rounded-lg text-mist hover:bg-slate-2 hover:text-snow lg:hidden">
         <MenuIcon size={20} />
       </button>
-      <NavLink to="/app" className="inline-flex items-center gap-2.5">
+      <NavLink to="/" className="inline-flex items-center gap-2.5" aria-label="Tessera home">
         <Mark size={24} status={status} />
         <Wordmark className="hidden text-[19px] min-[400px]:inline" />
       </NavLink>

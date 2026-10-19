@@ -6,21 +6,24 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, HOME, VERSION, loadConfig, log, newMachineId, saveConfig, shortHostname } from "./config.js";
 import { handle, type HookInput } from "./hooks.js";
-import { get } from "./transport.js";
+import { get, request, typicalLatencyMs } from "./transport.js";
 
+// Seconds Claude Code gives each hook. A round trip to the server through a corporate proxy can take
+// 1.5-2 s, and a report a web filter blocks is sent a second time with detail withheld, so the short
+// ones allow for two round trips and a little slack.
 const EVENTS: Array<[string, number]> = [
-  ["SessionStart", 10],
-  ["UserPromptSubmit", 5],
-  ["PreToolUse", 60], // long enough to answer a question from Tessera; ordinary calls return in well under a second
-  ["PostToolUse", 5],
-  ["PostToolUseFailure", 5],
-  ["SubagentStart", 5],
-  ["SubagentStop", 5],
-  ["Notification", 5],
+  ["SessionStart", 15],
+  ["UserPromptSubmit", 15],
+  ["PreToolUse", 60], // long enough to answer a question from Tessera; ordinary calls return in a few seconds at most
+  ["PostToolUse", 15],
+  ["PostToolUseFailure", 15],
+  ["SubagentStart", 15],
+  ["SubagentStop", 15],
+  ["Notification", 15],
   ["PermissionRequest", 90],
-  ["Stop", 10],
-  ["PreCompact", 5],
-  ["SessionEnd", 5],
+  ["Stop", 20],
+  ["PreCompact", 15],
+  ["SessionEnd", 10],
 ];
 
 const OURS = /tessera-reporter(?:\.m?js)?\\?"?\s+hook\b/;
@@ -234,6 +237,11 @@ export async function main(args: string[]): Promise<void> {
         if (health?.ok) {
           const who = await get<{ device: string; user: string }>(cfg, "/api/ingest/whoami", 5000);
           rows.push([!!who, who ? `Device token valid: ${who.device}, enrolled by ${who.user}` : "Device token rejected", who ? undefined : "The token was revoked. Get a new enrolment code and rerun the installer."]);
+          const typical = typicalLatencyMs();
+          rows.push([typical == null || typical < 2500, typical == null ? "Round trip to the server: not measured yet" : `Round trip to the server: about ${typical} ms`, typical != null && typical >= 2500 ? "A slow network or proxy. The reporter sizes its timeouts to this, but an answer from Tessera can reach the terminal late." : undefined]);
+          // A command that looks like shell injection to a web filter. If this is blocked, real reports with command text will be too.
+          const probe = await request(cfg, "POST", "/api/ingest/decide", { sessionId: "doctor-probe", tool: "Bash", command: "echo \"== check ==\"; curl -s -w ' [%{http_code}]\\n' http://localhost:8080/health" }, 8000);
+          rows.push([probe.kind !== "blocked", probe.kind === "blocked" ? "A web filter on this network blocks some report content" : "Report content passes this network's filters", probe.kind === "blocked" ? `Sessions still appear, with command and file detail withheld whenever a report is blocked. Ask your network team to allow POSTs to ${cfg.serverUrl}.` : undefined]);
         }
       }
       const p = settingsPath();

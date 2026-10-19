@@ -309,6 +309,7 @@ export function SessionPage() {
               {s.tags.paused ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400">paused</span> : null}
               {s.stopRequested ? <span className="rounded-md bg-rose-600/20 px-2 py-0.5 text-[11.5px] font-medium text-rose-400">stopping</span> : null}
               {s.assignee ? <span className="rounded-md bg-violet-400/15 px-2 py-0.5 text-[11.5px] font-medium text-violet-400">handed to {s.assignee.name}</span> : null}
+              {s.tags["network-filter"] ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400" title="A web filter on the engineer's network blocks the full report. Commands, diffs and excerpts are withheld; state, cost, agents and timing are live.">detail withheld by a network filter</span> : null}
               {s.continuedFrom ? <Link to={`/app/sessions/${encodeURIComponent(s.continuedFrom)}`} className="rounded-md bg-slate-2 px-2 py-0.5 text-[11.5px] font-medium text-mist hover:text-snow">continues an earlier session →</Link> : null}
             </div>
             <div className="mt-1 break-words text-[13px] text-fog">

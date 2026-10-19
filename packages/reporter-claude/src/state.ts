@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Action, ActivityEvent, AgentReport, OpenAsk, SessionStatus, WaitReason } from "@tessera/contract";
-import { SESSIONS_DIR, ensureDirs } from "./config.js";
+import { SESSIONS_DIR, ensureDirs, log } from "./config.js";
 import { newCursor, type TranscriptCursor } from "./transcript.js";
 
 export interface AgentState extends AgentReport {
@@ -41,6 +41,10 @@ export interface SessionState {
   activity: Action[];
   /** The last call Tessera's policy turned into a prompt, so the prompt can say which rule did it. */
   forced: { summary: string; reason: string; at: number } | null;
+  /** A web filter on this network blocked the full report; detail is being withheld. */
+  networkFiltered?: boolean;
+  /** When to next try a full report after a block. */
+  filterRetryAt?: number;
 }
 
 function pathFor(id: string): string {
@@ -110,9 +114,72 @@ export function endAction(s: SessionState, id: string | undefined, status: "ok" 
   a.error = error ? error.slice(0, 300) : null;
 }
 
+const LOCK_WAIT_MS = 4000;
+const LOCK_STALE_MS = 15_000;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Hold the session's lock. Claude Code runs a hook per tool call and runs them
+ * concurrently when calls are parallel, so without this two hooks load the same
+ * state, each change it, and the last to save wins: a PostToolUse closing a call
+ * is overwritten by a PreToolUse that loaded a moment earlier, and the call
+ * stays "running" for ever. The lock is a directory (mkdir is atomic on every
+ * platform). A lock older than 15 s belongs to a hook that died and is taken
+ * over; after 4 s of waiting the hook proceeds without it rather than lose the event.
+ */
+export function lockState(id: string): () => void {
+  ensureDirs();
+  const dir = `${pathFor(id)}.lock`;
+  const started = Date.now();
+  for (;;) {
+    try {
+      mkdirSync(dir);
+      return () => {
+        try {
+          rmdirSync(dir);
+        } catch {
+          /* already released */
+        }
+      };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(dir).mtimeMs > LOCK_STALE_MS) {
+          rmdirSync(dir);
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - started > LOCK_WAIT_MS) {
+        log(`state lock for ${id} held for over ${LOCK_WAIT_MS} ms; proceeding without it`);
+        return () => {};
+      }
+      sleepSync(15);
+    }
+  }
+}
+
+/** Load, change and save a session's state under its lock. `fn` must not await: the lock is for the read-modify-write, never for the network. */
+export function updateState<T>(id: string, cwd: string | null, transcriptPath: string | null, fn: (s: SessionState) => T): T {
+  const unlock = lockState(id);
+  try {
+    const s = loadState(id, cwd, transcriptPath);
+    const out = fn(s);
+    saveState(s);
+    return out;
+  } finally {
+    unlock();
+  }
+}
+
 export function saveState(s: SessionState): void {
   const p = pathFor(s.id);
-  const tmp = `${p}.tmp`;
+  // A temp file per writer, so two savers can never rename the same temp file (the ENOENT race in the log).
+  const tmp = `${p}.${process.pid}.${Date.now().toString(36)}.tmp`;
   writeFileSync(tmp, JSON.stringify(s), { mode: 0o600 });
   renameSync(tmp, p);
 }

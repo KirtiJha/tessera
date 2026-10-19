@@ -85,6 +85,8 @@ For CI runners, issue a token in **Devices → Issue a token by hand** and run t
 
 Only to your server, only with the device token, and only this: the session id, working directory, git repo, branch and dirty-file count, model, token counts per model (read from the transcript), context fill, compactions, the plan state, each subagent's type, status, tokens and tool-call counts, the first 400 characters of an agent's task and answer, short event lines, the last 40 tool calls as one-line summaries with their outcome and duration, and, while a prompt is open, what is being asked in full: the whole command, an edit's before and after text, the first part of a file about to be written, the URL, the agent's last message before asking, and the allow rules Claude Code suggests. Keys, tokens, passwords and high-entropy strings are replaced with `[redacted]` before anything is sent. Transcripts, tool output and model thinking are never sent, and nothing beyond the open prompt's own edit is read from disk.
 
+On a network whose web filter blocks a report's content (a 403 with an HTML page rather than Tessera's JSON), the reporter sends the report again with free-text detail withheld (tool names without arguments, no command, diff or excerpt), so the session still shows with its state, cost and timing, marked **detail withheld**. `doctor` detects such a filter and says what to ask your network team for. Request timeouts follow the measured round trip to your server, so a slow proxy does not make hooks fail.
+
 ### How acting on a session works
 
 Tessera never connects to an engineer's machine. The reporter posts snapshots and, in its reply, receives any deliveries queued for the session:

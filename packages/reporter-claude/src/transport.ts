@@ -1,7 +1,8 @@
 import { clean, type Report, type ReportAck } from "@tessera/contract";
 import { execFileSync } from "node:child_process";
-import { basename } from "node:path";
-import { VERSION, log, shortHostname, type Config } from "./config.js";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { HOME, VERSION, log, shortHostname, type Config } from "./config.js";
 import { contextFill, usageList } from "./transcript.js";
 import type { SessionState } from "./state.js";
 
@@ -60,44 +61,147 @@ export function buildReport(cfg: Config, s: SessionState): Report {
   };
 }
 
-export async function post<T>(cfg: Config, path: string, body: unknown, timeoutMs: number): Promise<T | null> {
+// ---- budgets sized to this network ------------------------------------------
+// A hook has a few seconds. Behind a corporate proxy a round trip to the server
+// can take 1.5-2 s, so a fixed 1.5 s budget fails almost every time. The typical
+// round trip is measured on every successful request and kept per machine.
+
+const LATENCY_PATH = join(HOME, "latency.json");
+let ewma: number | null | undefined;
+
+function loadEwma(): number | null {
+  if (ewma !== undefined) return ewma;
+  try {
+    ewma = existsSync(LATENCY_PATH) ? Number((JSON.parse(readFileSync(LATENCY_PATH, "utf8")) as { ewmaMs?: number }).ewmaMs) || null : null;
+  } catch {
+    ewma = null;
+  }
+  return ewma;
+}
+
+function observe(ms: number): void {
+  const prev = loadEwma();
+  ewma = prev == null ? ms : Math.round(prev * 0.7 + ms * 0.3);
+  try {
+    writeFileSync(LATENCY_PATH, JSON.stringify({ ewmaMs: ewma, at: new Date().toISOString() }));
+  } catch {
+    /* a budget estimate is not worth failing a hook over */
+  }
+}
+
+/** The typical round trip to the server on this machine, or null before the first successful request. */
+export function typicalLatencyMs(): number | null {
+  return loadEwma();
+}
+
+/** A timeout that fits this network: 2.5× the typical round trip plus half a second, kept within [min, max]. Unknown network: 4 s, within the same bounds. */
+export function budget(minMs: number, maxMs: number): number {
+  const typical = loadEwma();
+  const want = typical == null ? 4000 : Math.round(typical * 2.5 + 500);
+  return Math.max(minMs, Math.min(maxMs, want));
+}
+
+// ---- requests ------------------------------------------------------------------
+
+export type RequestResult<T> = { kind: "ok"; body: T } | { kind: "blocked" } | { kind: "rejected"; status: number } | { kind: "failed"; error: string };
+
+/** Tessera only ever answers JSON. A 403 carrying an HTML page is a web filter or WAF between this machine and the server refusing the request's content. */
+export function isNetworkBlock(status: number, contentType: string | null, text: string): boolean {
+  return status === 403 && (/text\/html|xhtml/i.test(contentType ?? "") || /^\s*<(!doctype|html)/i.test(text));
+}
+
+export async function request<T>(cfg: Config, method: "GET" | "POST", path: string, body: unknown, timeoutMs: number): Promise<RequestResult<T>> {
+  const t0 = Date.now();
   try {
     const res = await fetch(`${cfg.serverUrl}${path}`, {
-      method: "POST",
+      method,
       headers: { "content-type": "application/json", authorization: `Bearer ${cfg.token}` },
-      body: JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) {
-      log(`POST ${path} -> ${res.status} ${(await res.text()).slice(0, 200)}`);
-      return null;
+    if (res.ok) {
+      observe(Date.now() - t0);
+      return { kind: "ok", body: (await res.json()) as T };
     }
-    return (await res.json()) as T;
+    const text = await res.text();
+    if (isNetworkBlock(res.status, res.headers.get("content-type"), text)) {
+      log(`${method} ${path} blocked by a web filter on this network (HTTP 403 with an HTML page; not Tessera)`);
+      return { kind: "blocked" };
+    }
+    log(`${method} ${path} -> ${res.status} ${text.slice(0, 200)}`);
+    return { kind: "rejected", status: res.status };
   } catch (e) {
-    log(`POST ${path} failed: ${(e as Error).message}`);
-    return null;
+    const err = e as Error;
+    const typical = loadEwma();
+    log(`${method} ${path} failed: ${err.message}${err.name === "TimeoutError" ? ` (budget ${timeoutMs} ms; typical round trip ${typical == null ? "unknown" : `${typical} ms`})` : ""}`);
+    return { kind: "failed", error: err.message };
   }
+}
+
+export async function post<T>(cfg: Config, path: string, body: unknown, timeoutMs: number): Promise<T | null> {
+  const r = await request<T>(cfg, "POST", path, body, timeoutMs);
+  return r.kind === "ok" ? r.body : null;
 }
 
 export async function get<T>(cfg: Config, path: string, timeoutMs: number): Promise<T | null> {
-  try {
-    const res = await fetch(`${cfg.serverUrl}${path}`, { headers: { authorization: `Bearer ${cfg.token}` }, signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
+  const r = await request<T>(cfg, "GET", path, undefined, timeoutMs);
+  return r.kind === "ok" ? r.body : null;
 }
 
-/** Send a snapshot; on success clear the acknowledged events. Returns the ack (deliveries included) or null. */
-export async function sendReport(cfg: Config, s: SessionState, timeoutMs = 2500): Promise<ReportAck | null> {
-  const ack = await post<ReportAck>(cfg, "/api/ingest/report", buildReport(cfg, s), timeoutMs);
-  if (ack) {
-    const acked = new Set(ack.ackedEvents);
-    s.outbox = s.outbox.filter((e) => !acked.has(e.id));
-    s.lastReportAt = Date.now();
+// ---- reports, with detail withheld when a filter blocks them --------------------
+
+export const WITHHELD = "withheld: a web filter on this network blocks it";
+
+/**
+ * The same report with every free-text field reduced to its shape: tool names
+ * without arguments, kinds without text, no excerpts, no command, no diff. The
+ * session, its state, tokens, cost, agents and timing all survive, so the wall
+ * still shows it; the tag tells the console why the detail is missing.
+ */
+export function withholdDetail(r: Report): Report {
+  const s = r.session;
+  return {
+    ...r,
+    session: {
+      ...s,
+      name: null,
+      activity: s.activity.map((a) => ({ ...a, summary: `${a.tool}(…)`, error: a.error ? WITHHELD : null })),
+      openAsk: s.openAsk
+        ? {
+            ...s.openAsk,
+            prompt: `${s.openAsk.tool ?? "tool"}(…) — ${WITHHELD}`,
+            detail: s.openAsk.detail ? { ...s.openAsk.detail, command: null, description: null, edits: [], write: null, url: null, paths: [], rationale: null } : null,
+          }
+        : null,
+      agents: s.agents.map((a) => ({ ...a, description: null, promptExcerpt: null, answerExcerpt: null, failure: a.failure ? { ...a.failure, summary: WITHHELD, outputTail: [] } : null })),
+      tags: { ...s.tags, "network-filter": "detail withheld" },
+    },
+    events: r.events.map((e) => ({ id: e.id, ts: e.ts, kind: e.kind, agentId: e.agentId, text: e.kind })),
+  };
+}
+
+export interface ReportSnapshot {
+  report: Report;
+  /** The session's last report had to withhold detail. */
+  filtered: boolean;
+  /** When to try a full report again after a block. */
+  retryAt: number;
+}
+
+/**
+ * Send a snapshot. A full report that a filter blocks is sent again with detail
+ * withheld; once a session is known to be filtered, the full report is tried
+ * again only once a minute, so every hook does not pay for two round trips.
+ * Returns the ack, and whether detail was withheld (null when nothing got through).
+ */
+export async function sendReport(cfg: Config, snap: ReportSnapshot, timeoutMs: number): Promise<{ ack: ReportAck | null; filtered: boolean | null }> {
+  if (!snap.filtered || Date.now() >= snap.retryAt) {
+    const r = await request<ReportAck>(cfg, "POST", "/api/ingest/report", snap.report, timeoutMs);
+    if (r.kind === "ok") return { ack: r.body, filtered: false };
+    if (r.kind !== "blocked") return { ack: null, filtered: null };
   }
-  return ack;
+  const r = await request<ReportAck>(cfg, "POST", "/api/ingest/report", withholdDetail(snap.report), timeoutMs);
+  return r.kind === "ok" ? { ack: r.body, filtered: true } : { ack: null, filtered: r.kind === "blocked" ? true : null };
 }
 
 /** Git facts for the working directory, cheap enough to refresh every 10 s. */

@@ -103,6 +103,7 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
               </div>
             </div>
             {RUNTIME[s.reporter.kind] ? <span className="shrink-0 rounded-md bg-violet-400/15 px-1.5 py-0.5 text-[11px] text-violet-400">{RUNTIME[s.reporter.kind]}</span> : null}
+            {s.tags["network-filter"] ? <span className="shrink-0 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] text-amber-400" title="A web filter on the engineer's network blocks the full report, so commands and file detail are withheld. The session, its state and cost still show.">detail withheld</span> : null}
             <span className="shrink-0 rounded-md border border-line-2 px-1.5 py-0.5 text-[11px] text-mist">{modelShort(s.model)}{s.effort ? ` · ${s.effort}` : ""}</span>
           </div>
 
