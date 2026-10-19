@@ -45,8 +45,15 @@ export interface SessionState {
   forced: { summary: string; reason: string; at: number } | null;
   /** A web filter on this network blocked the full report; detail is being withheld. */
   networkFiltered?: boolean;
+  /** The keep-alive process for this session, so only one runs. */
+  keepalivePid?: number;
   /** When to next try a full report after a block. */
   filterRetryAt?: number;
+}
+
+/** Is there state for this session? SessionEnd deletes it, which is how a keep-alive learns the session is over. */
+export function hasState(id: string): boolean {
+  return existsSync(pathFor(id));
 }
 
 function pathFor(id: string): string {

@@ -278,6 +278,12 @@ export const Report = z.object({
   machine: MachineInfo,
   session: SessionReport,
   events: z.array(ActivityEvent).max(500).default([]),
+  /**
+   * False for a keep-alive sent while the session waits at the terminal: it
+   * refreshes the snapshot but leaves queued answers and messages for the hook
+   * that can act on them.
+   */
+  claimDeliveries: z.boolean().default(true),
 });
 export type Report = z.infer<typeof Report>;
 

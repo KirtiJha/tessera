@@ -29,6 +29,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
   }));
   return {
     v: 1,
+    claimDeliveries: true,
     sentAt: new Date().toISOString(),
     reporter: { kind: "claude-code-hooks", version: VERSION, schema: "1.0" },
     machine: { hostname: shortHostname(), machineId: cfg.machineId },

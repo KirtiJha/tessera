@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Question, type ReportAck, type SuggestedRule } from "@tessera/contract";
 import { log, type Config } from "./config.js";
 import { addEvent, deleteState, endAction, startAction, updateState, type AgentState, type SessionState } from "./state.js";
@@ -277,11 +278,65 @@ async function askFromTessera(cfg: Config, sid: string, txn: Txn, input: HookInp
  * as JSON) and the exit code. Every path is wrapped so a reporter failure can
  * never change what the session does.
  */
+/** Is a process still running? EPERM means it is, under another user. */
+export function alive(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Start the session's keep-alive if none is running. Hooks only fire when
+ * Claude Code does something, so a session waiting at the terminal (a prompt
+ * nobody answered from Tessera yet, or idle between prompts) and a long tool
+ * call would otherwise go silent and leave the wall. The keep-alive is a tiny
+ * detached process that watches Claude Code's own process and exits with it.
+ */
+function ensureKeepalive(txn: Txn, sid: string): void {
+  const script = process.argv[1];
+  // Only as the installed reporter: under a test runner argv[1] is the runner, not us.
+  if (!script || !/tessera-reporter(\.m?js)?$/.test(script) || process.env.TESSERA_NO_KEEPALIVE === "1") return;
+  const claude = process.ppid;
+  if (!claude || claude <= 1) return;
+  const pid = txn((s) => (alive(s.keepalivePid) ? s.keepalivePid : null));
+  if (pid) return;
+  try {
+    const child = spawn(process.execPath, [script, "keepalive", sid, String(claude)], { detached: true, stdio: "ignore", windowsHide: true });
+    child.unref();
+    if (child.pid) txn((s) => void (s.keepalivePid = child.pid));
+  } catch (e) {
+    log(`keepalive spawn failed: ${(e as Error).message}`);
+  }
+}
+
+/** Refresh the session on the server without taking deliveries, which only a hook can act on. */
+export async function heartbeat(cfg: Config, sid: string): Promise<boolean> {
+  const txn: Txn = (fn) => updateState(sid, null, null, fn);
+  const snap = txn((s) => {
+    refreshTranscripts(s);
+    refreshGit(s);
+    return { report: { ...buildReport(cfg, s), claimDeliveries: false }, filtered: s.networkFiltered ?? false, retryAt: s.filterRetryAt ?? 0 };
+  });
+  const r = await sendReport(cfg, snap, budget(4000, 10_000));
+  if (!r.ack) return false;
+  const acked = new Set(r.ack.ackedEvents);
+  txn((s) => {
+    s.outbox = s.outbox.filter((e) => !acked.has(e.id));
+    s.lastReportAt = Date.now();
+  });
+  return true;
+}
+
 export async function handle(cfg: Config | null, event: string, input: HookInput): Promise<{ output: unknown; exitCode: number }> {
   const sid = input.session_id;
   if (!sid) return { output: undefined, exitCode: 0 };
   const txn: Txn = (fn) => updateState(sid, input.cwd ?? null, input.transcript_path ?? null, fn);
   let output: unknown;
+  if (cfg && event !== "SessionEnd" && event !== "hook-test") ensureKeepalive(txn, sid);
 
   try {
     switch (event) {

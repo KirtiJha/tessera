@@ -5,7 +5,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, HOME, VERSION, loadConfig, log, newMachineId, saveConfig, shortHostname } from "./config.js";
-import { handle, type HookInput } from "./hooks.js";
+import { alive, handle, heartbeat, type HookInput } from "./hooks.js";
+import { hasState, updateState } from "./state.js";
 import { get, request, typicalLatencyMs } from "./transport.js";
 
 // Seconds Claude Code gives each hook. A round trip to the server through a corporate proxy can take
@@ -208,6 +209,24 @@ export async function main(args: string[]): Promise<void> {
       writeFileSync(p, JSON.stringify(settings, null, 2) + "\n");
       process.stdout.write(`Removed Tessera hooks from ${p}. Your device token stays in ${CONFIG_PATH}; delete it to forget this machine.\n`);
       return;
+    }
+    case "keepalive": {
+      // Started detached by a hook. Keeps a waiting or busy session on the wall while no hook fires,
+      // and exits when Claude Code exits, the session ends, or another keep-alive takes over.
+      const sid = args[1] ?? "";
+      const claude = Number(args[2]);
+      const cfg = loadConfig();
+      if (!sid || !cfg || !alive(claude)) return;
+      const every = 10_000;
+      const until = Date.now() + 24 * 3600_000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, every));
+        if (Date.now() > until || !alive(claude) || !hasState(sid)) return;
+        const st = updateState(sid, null, null, (s) => ({ mine: s.keepalivePid === process.pid, ended: s.status === "ended", quietFor: Date.now() - (s.lastReportAt ?? 0) }));
+        if (!st.mine || st.ended) return;
+        // Hooks report on their own while Claude Code is busy; only fill the gaps.
+        if (st.quietFor >= every) await heartbeat(cfg, sid).catch((e) => log(`keepalive ${sid}: ${(e as Error).message}`));
+      }
     }
     case "status": {
       const cfg = loadConfig();

@@ -95,6 +95,7 @@ Tessera never connects to an engineer's machine. The reporter posts snapshots an
 - A **question** (`AskUserQuestion`, caught in the `PreToolUse` hook) is shown with its options; an answer from the console within 20 s is returned as the tool's `answers`, so the terminal never shows the dialog. After that the terminal asks as usual.
 - A **plan** (`ExitPlanMode`) works the same way: approve or send back with feedback.
 - A **message** is delivered the next time the session pauses (`Stop` hook) as an instruction to continue with.
+- While a session waits at the terminal or runs a long tool call, no hooks fire. A small per-session **keep-alive** started by the first hook refreshes it every 10 s (without taking answers or messages, which stay queued for the next hook), so it stays on the wall. It exits with Claude Code.
 - **Pause** and a reached **hard budget with enforcement** deny every new tool call (`PreToolUse` hook) with a reason the engineer sees in the terminal.
 - **Stop** refuses the session's next tool call and ends its turn (`continue: false`), handing control back to the engineer. It applies once.
 - **Hand over** gives a colleague the session for a while: they are told when it waits, and can answer, stop or pause it.
