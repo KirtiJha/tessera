@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Empty, Input, Select, Spinner, Table, type Column, type Sort } from "../../components/ui";
-import { api } from "../../lib/api";
+import { Button, Empty, Input, Select, Spinner, Table, useConfirm, useToast, type Column, type Sort } from "../../components/ui";
+import { api, ApiError } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
 import { fmtDate, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../../lib/format";
 
 interface Row { id: string; name: string | null; cwd: string | null; model: string | null; startedAt: string; endedAt: string | null; endReason: string | null; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; costUsd: number | null; repo: string | null; branch: string | null; blowouts: number; ownerName: string | null; ownerId: string | null; hostname: string | null; agentCount: number; failedAgents: number }
@@ -53,9 +54,14 @@ export function History() {
   useEffect(() => {
     void api.get<{ people: Person[] }>("/api/fleet/people").then((r) => setPeople(r.people)).catch(() => setPeople([]));
   }, []);
+  // Any number can be selected: two compare, and an admin can delete what is selected.
   const [picked, setPicked] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
   const nav = useNavigate();
-  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]));
+  const toast = useToast();
+  const confirm = useConfirm();
+  const { isAdmin } = useAuth();
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
   const query = useMemo(() => {
     const u = new URLSearchParams({ page: String(page), pageSize: "25", sort: sort.key, dir: sort.dir });
@@ -72,9 +78,37 @@ export function History() {
   }, [query]);
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const filtered = !!(q || owner || range !== "all");
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    if (!reload) return;
+    setData(null);
+    void api.get<{ total: number; pageSize: number; sessions: Row[] }>(`/api/fleet/history?${query}`).then(setData);
+  }, [reload, query]);
+
+  /** Delete the selected sessions and everything under them. The server refuses anything still live. */
+  const deletePicked = async () => {
+    const n = picked.length;
+    if (!(await confirm({ title: `Delete ${n} session${n === 1 ? "" : "s"} from history?`, body: "Their agents, events, samples and prompts go with them. The audit log keeps a record of the deletion. This cannot be undone.", action: `Delete ${n}`, tone: "danger" }))) return;
+    setDeleting(true);
+    try {
+      const r = await api.post<{ deleted: number; skipped: string[] }>("/api/fleet/sessions/delete", { ids: picked });
+      toast(r.skipped.length ? `Deleted ${r.deleted}. ${r.skipped.length} still live and kept; stop or drop them from the wall first.` : `Deleted ${r.deleted} session${r.deleted === 1 ? "" : "s"}.`, r.skipped.length ? "info" : "ok");
+      setPicked(r.skipped);
+      setReload((x) => x + 1);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not delete.", "error");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const columns: Column<Row>[] = [
-    { key: "pick", header: <span className="sr-only">Compare</span>, width: "2.5rem", cell: (r) => <input type="checkbox" aria-label={`Select ${r.name ?? r.id} to compare`} checked={picked.includes(r.id)} onChange={() => toggle(r.id)} /> },
+    {
+      key: "pick",
+      header: data ? <input type="checkbox" aria-label="Select all on this page" checked={data.sessions.length > 0 && data.sessions.every((r) => picked.includes(r.id))} onChange={(e) => setPicked(e.target.checked ? [...new Set([...picked, ...data.sessions.map((r) => r.id)])] : picked.filter((id) => !data.sessions.some((r) => r.id === id)))} /> : <span className="sr-only">Select</span>,
+      width: "2.5rem",
+      cell: (r) => <input type="checkbox" aria-label={`Select ${r.name ?? r.id}`} checked={picked.includes(r.id)} onChange={() => toggle(r.id)} />,
+    },
     {
       key: "name",
       header: "Session",
@@ -131,9 +165,10 @@ export function History() {
           </div>
           <AnimatePresence>
             {picked.length ? (
-              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-line-2 bg-slate-1 px-4 py-2.5 shadow-2xl">
-                <span className="text-[13px] text-mist">{picked.length === 1 ? "Pick one more to compare" : "2 sessions selected"}</span>
-                <Button size="sm" variant="primary" disabled={picked.length < 2} onClick={() => nav(`/app/compare?a=${encodeURIComponent(picked[0]!)}&b=${encodeURIComponent(picked[1]!)}`)}>Compare</Button>
+              <motion.div role="toolbar" aria-label="Selected sessions" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="fixed bottom-5 left-1/2 z-30 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-line-2 bg-slate-1 px-4 py-2.5 shadow-2xl">
+                <span className="text-[13px] text-mist">{picked.length} selected{picked.length === 1 ? " · pick one more to compare" : ""}</span>
+                <Button size="sm" variant="primary" disabled={picked.length !== 2} title={picked.length === 2 ? undefined : "Compare takes exactly two sessions"} onClick={() => nav(`/app/compare?a=${encodeURIComponent(picked[0]!)}&b=${encodeURIComponent(picked[1]!)}`)}>Compare</Button>
+                {isAdmin ? <Button size="sm" variant="danger" loading={deleting} onClick={() => void deletePicked()}>Delete {picked.length}</Button> : null}
                 <button onClick={() => setPicked([])} className="text-[12.5px] text-fog hover:text-snow">Clear</button>
               </motion.div>
             ) : null}

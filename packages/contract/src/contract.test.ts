@@ -36,6 +36,15 @@ describe("pricing", () => {
     expect(findPrice("claude-sonnet-4-5-20250929")?.label).toBe("Claude Sonnet 4.5");
     expect(findPrice("claude-opus-4-1")?.label).toBe("Claude Opus 4.1");
     expect(findPrice("gemma4:12b")).toBeNull();
+    // The longest prefix wins, so a generation does not swallow its point release.
+    expect(findPrice("claude-opus-5-5")?.label).toBe("Claude Opus 5.5");
+    expect(findPrice("claude-opus-5")?.label).toBe("Claude Opus 5");
+    expect(findPrice("claude-sonnet-5-5-20260601")?.input).toBe(2);
+    expect(findPrice("claude-fable-5-1")?.cacheRead).toBe(0.25);
+    expect(findPrice("claude-haiku-5-5")?.output).toBe(0.5);
+    // Bedrock and Vertex ids carry the same model under a platform prefix or suffix.
+    expect(findPrice("us.anthropic.claude-sonnet-4-5-20250929-v1:0")?.label).toBe("Claude Sonnet 4.5");
+    expect(findPrice("claude-opus-4-8@20260301")?.label).toBe("Claude Opus 4.8");
   });
   it("prices tokens and reports unpriced models", () => {
     const r = priceUsage([

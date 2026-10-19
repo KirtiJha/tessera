@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { audit } from "../audit.js";
-import { atLeast, canActOn, type Role } from "../auth/rbac.js";
+import { atLeast, canActOn, canManageOrg, type Role } from "../auth/rbac.js";
 import { answerAsk } from "../fleet/actions.js";
 import { checkMutation, requireUser } from "../auth/session.js";
 import { pool } from "../db/pool.js";
@@ -301,5 +301,39 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     await fleet.drop(p.orgId, id);
     await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "session.drop", targetType: "session", targetId: id, ip: req.ip });
     return { ok: true };
+  });
+
+  /**
+   * Admins remove ended or dropped sessions from history, with their agents,
+   * events, samples, prompts and policy decisions. A session that is still
+   * live is kept and named in `skipped`: its next report would recreate it,
+   * so it has to be dropped from the wall first.
+   */
+  app.post("/sessions/delete", async (req) => {
+    const p = req.principal!;
+    if (!canManageOrg(p)) throw Object.assign(new Error("Deleting sessions from history needs the admin role."), { statusCode: 403 });
+    const { ids } = z.object({ ids: z.array(z.string().min(1).max(200)).min(1).max(500) }).parse(req.body);
+    // A session that has ended but is still lingering on the wall is let go first; one still running is kept.
+    const skipped: string[] = [];
+    const candidates: string[] = [];
+    for (const id of ids) {
+      const rec = fleet.get(p.orgId, id);
+      if (rec && rec.status !== "ended") skipped.push(id);
+      else {
+        if (rec) await fleet.drop(p.orgId, id);
+        candidates.push(id);
+      }
+    }
+    let deleted = 0;
+    if (candidates.length) {
+      const r = await pool.query<{ id: string }>("DELETE FROM sessions WHERE org_id = $1 AND id = ANY($2) AND (ended_at IS NOT NULL OR dropped_at IS NOT NULL) RETURNING id", [p.orgId, candidates]);
+      deleted = r.rowCount ?? 0;
+      if (deleted) {
+        const gone = r.rows.map((x) => x.id);
+        await pool.query("DELETE FROM policy_decisions WHERE org_id = $1 AND session_id = ANY($2)", [p.orgId, gone]);
+        await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "session.delete", targetType: "session", targetId: gone.length === 1 ? gone[0] : undefined, detail: { count: gone.length, ids: gone.slice(0, 50) }, ip: req.ip });
+      }
+    }
+    return { deleted, skipped };
   });
 }

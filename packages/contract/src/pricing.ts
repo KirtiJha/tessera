@@ -17,21 +17,53 @@ export interface ModelPrice {
   cacheWrite: number;
 }
 
-export const PRICES_AS_OF = "2026-06-01";
+export const PRICES_AS_OF = "2026-10-19";
 
+/**
+ * Anthropic's published list prices (platform.claude.com/docs/en/about-claude/pricing),
+ * per million tokens: base input, output, cache read (hits and refreshes) and the
+ * 5-minute cache write. Longest matching prefix wins, so "claude-opus-5" does not
+ * swallow "claude-opus-5-5". Haiku 5.5 is priced at its up-to-100K-token tier; its
+ * over-100K tier is 5× and is not modelled, so long-context Haiku 5.5 is under-priced here.
+ */
 export const BUILTIN_PRICES: ModelPrice[] = [
+  { prefix: "claude-fable-5-1", label: "Claude Fable 5.1", input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+  { prefix: "claude-fable-5", label: "Claude Fable 5", input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+  { prefix: "claude-mythos-5-1", label: "Claude Mythos 5.1", input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+  { prefix: "claude-mythos-5", label: "Claude Mythos 5", input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+  { prefix: "claude-opus-5-5", label: "Claude Opus 5.5", input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  { prefix: "claude-opus-5", label: "Claude Opus 5", input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  { prefix: "claude-opus-4-8", label: "Claude Opus 4.8", input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  { prefix: "claude-opus-4-7", label: "Claude Opus 4.7", input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  { prefix: "claude-opus-4-6", label: "Claude Opus 4.6", input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  { prefix: "claude-opus-4-5", label: "Claude Opus 4.5", input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   { prefix: "claude-opus-4-1", label: "Claude Opus 4.1", input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
   { prefix: "claude-opus-4", label: "Claude Opus 4", input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  { prefix: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  { prefix: "claude-sonnet-5", label: "Claude Sonnet 5", input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  { prefix: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   { prefix: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   { prefix: "claude-sonnet-4", label: "Claude Sonnet 4", input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  { prefix: "claude-haiku-5-5", label: "Claude Haiku 5.5", input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   { prefix: "claude-haiku-4-5", label: "Claude Haiku 4.5", input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
-  { prefix: "claude-3-5-haiku", label: "Claude 3.5 Haiku", input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
-  { prefix: "claude-3-7-sonnet", label: "Claude 3.7 Sonnet", input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  { prefix: "claude-3-5-haiku", label: "Claude Haiku 3.5", input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+  { prefix: "claude-3-7-sonnet", label: "Claude Sonnet 3.7", input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
 ];
+
+/**
+ * The model id as Anthropic names it, whatever platform it came through:
+ * "us.anthropic.claude-sonnet-4-5-20250929-v1:0" (Bedrock) and
+ * "claude-sonnet-4-5@20250929" (Vertex) both become "claude-sonnet-4-5-...".
+ */
+export function canonicalModel(model: string): string {
+  const m = model.toLowerCase();
+  const i = m.indexOf("claude-");
+  return i >= 0 ? m.slice(i) : m;
+}
 
 export function findPrice(model: string | null | undefined, table: ModelPrice[] = BUILTIN_PRICES): ModelPrice | null {
   if (!model) return null;
-  const m = model.toLowerCase();
+  const m = canonicalModel(model);
   let best: ModelPrice | null = null;
   for (const p of table) {
     if (m.startsWith(p.prefix.toLowerCase()) && (!best || p.prefix.length > best.prefix.length)) best = p;

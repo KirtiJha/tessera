@@ -261,6 +261,15 @@ test("history filters and sorts from the URL, the audit log filters by action, a
   await page.getByLabel("Person").selectOption({ label: "Erin Example" });
   await expect(page).toHaveURL(/owner=/);
   await expect(page.getByRole("link", { name: "Fresh refactor" })).toBeVisible();
+  // An admin deletes ended sessions from history after confirming; the rows and their data go.
+  await page.getByLabel("Select all on this page").check();
+  const bar = page.getByRole("toolbar", { name: "Selected sessions" });
+  await expect(bar).toContainText("2 selected");
+  await bar.getByRole("button", { name: "Delete 2" }).click();
+  await page.getByRole("dialog", { name: /Delete 2 sessions from history/ }).getByRole("button", { name: "Delete 2" }).click();
+  await expect(page.getByText(/Deleted 2 sessions/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fresh refactor" })).toBeHidden();
+  await expect(page.getByRole("link", { name: "Old migration" })).toBeHidden();
 
   // Audit: only session actions, then everything again.
   await page.goto("/app/audit");
