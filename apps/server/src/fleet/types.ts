@@ -39,6 +39,8 @@ export interface SessionRecord {
   agents: AgentReport[];
   /** The most recent tool calls, newest last (rows from before the column lack it). */
   activity?: Action[];
+  /** The session's own tool calls per tool; agents carry their own. */
+  toolCalls?: Record<string, number>;
 }
 
 /** What people in Tessera have done to a session, kept on the server (rows from before a field existed lack it). */

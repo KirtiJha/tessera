@@ -1,6 +1,7 @@
 import { Download } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarList, ColumnChart } from "../../components/ColumnChart";
+import { Heatmap } from "../../components/Heatmap";
 import { Link } from "react-router-dom";
 import { Button, Empty, Field, Input, Panel, Select, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
@@ -15,7 +16,15 @@ interface Data {
   groups: { key: string; costUsd: number; tokens: number; sessions: number; people: number }[];
   models: { model: string; costUsd: number; sessions: number }[];
   forecast: { monthStart: string; monthEnd: string; monthToDateUsd: number; dailyRunRateUsd: number; projectedMonthUsd: number };
+  tools: { tool: string; calls: number; fails: number }[];
+  waits: { byKind: { kind: string; count: number; p50Ms: number | null; p90Ms: number | null; maxMs: number | null; open: number }[]; answerers: { name: string; count: number; p50Ms: number | null }[] };
+  hours: number[][];
+  cache: { hitRate: number | null; input: number; cacheRead: number; cacheWrite: number; output: number };
+  topSessions: { id: string; name: string | null; owner: string | null; costUsd: number }[];
 }
+
+const ASK_KIND: Record<string, string> = { permission: "Permissions", plan: "Plans", question: "Questions" };
+const ms = (v: number | null) => (v === null ? "—" : fmtDuration(v));
 interface Settings { ticketPattern: string; defaultTicketPattern: string; teams: { id: string; name: string; costCenter: string | null }[]; tagKeys: string[] }
 
 const GROUP_LABEL: Record<string, string> = { team: "Team", cost_center: "Cost centre", person: "Person", repo: "Repository", ticket: "Ticket", model: "Model" };
@@ -202,6 +211,78 @@ export function Analytics() {
           </div>
 
           <BudgetOutlook budgets={team ? budgets.filter((b) => b.scopeType !== "team" || b.scopeId === team) : budgets} isAdmin={isAdmin} />
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            <Panel title="Tool mix">
+              {data.tools.length ? (
+                <BarList
+                  sub="Tool calls by tool"
+                  total={data.tools.reduce((n, t) => n + t.calls, 0)}
+                  format={(n) => n.toLocaleString()}
+                  rows={data.tools.map((t) => ({ key: t.tool, value: t.calls, sub: t.fails ? `${t.fails} failed · ${((t.fails / Math.max(1, t.calls)) * 100).toFixed(1)}%` : "no failures" }))}
+                />
+              ) : (
+                <p className="text-[13px] text-fog">No tool calls reported in this range. Sessions on the current reporter send their tool mix.</p>
+              )}
+            </Panel>
+            <Panel title="Waiting on people">
+              {data.waits.byKind.length ? (
+                <>
+                  <table className="w-full text-[12.5px]">
+                    <thead className="text-left text-[11px] text-fog"><tr><th className="pb-1.5 font-medium">Kind</th><th className="pb-1.5 text-right font-medium">Prompts</th><th className="pb-1.5 text-right font-medium">Median</th><th className="pb-1.5 text-right font-medium">p90</th><th className="pb-1.5 text-right font-medium">Longest</th></tr></thead>
+                    <tbody className="divide-y divide-line">
+                      {data.waits.byKind.map((w) => (
+                        <tr key={w.kind}><td className="py-1.5 text-snow">{ASK_KIND[w.kind] ?? w.kind}{w.open ? <span className="text-amber-400"> · {w.open} open</span> : null}</td><td className="py-1.5 text-right text-mist">{w.count}</td><td className="py-1.5 text-right text-mist">{ms(w.p50Ms)}</td><td className="py-1.5 text-right text-mist">{ms(w.p90Ms)}</td><td className="py-1.5 text-right text-mist">{ms(w.maxMs)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {data.waits.answerers.length ? (
+                    <div className="mt-3 border-t border-line pt-3">
+                      <div className="text-[11px] font-medium text-ash">Who answers, and how fast</div>
+                      <ul className="mt-1.5 space-y-1 text-[12.5px]">
+                        {data.waits.answerers.map((a) => <li key={a.name} className="flex justify-between gap-2"><span className="text-snow">{a.name}</span><span className="text-fog">{a.count} · median {ms(a.p50Ms)}</span></li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-fog">Time from a prompt appearing to its answer, wherever it was answered. Long tails are where engineers sat waiting.</p>
+                </>
+              ) : (
+                <p className="text-[13px] text-fog">No prompts waited on a person in this range.</p>
+              )}
+            </Panel>
+            <Panel title="Cache and the big spenders">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[12.5px] text-mist">Cache hit rate</span>
+                <span className={`text-[22px] font-semibold ${data.cache.hitRate === null ? "text-fog" : data.cache.hitRate >= 0.7 ? "text-teal-300" : data.cache.hitRate >= 0.4 ? "text-amber-400" : "text-rose-400"}`}>{data.cache.hitRate === null ? "—" : `${Math.round(data.cache.hitRate * 100)}%`}</span>
+              </div>
+              {(() => {
+                const c = data.cache;
+                const total = c.input + c.cacheRead + c.cacheWrite + c.output;
+                const parts = [["cache read", c.cacheRead, "bg-teal-700"], ["input", c.input, "bg-teal-400"], ["cache write", c.cacheWrite, "bg-violet-400"], ["output", c.output, "bg-amber-400"]] as const;
+                return total ? (
+                  <>
+                    <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-3" role="img" aria-label={parts.map(([l, v]) => `${l} ${fmtTokens(v)}`).join(", ")}>
+                      {parts.map(([l, v, tone]) => <div key={l} className={tone} style={{ width: `${(v / total) * 100}%` }} title={`${l}: ${fmtTokens(v)}`} />)}
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-fog">{parts.map(([l, v, tone]) => <span key={l}><i className={`mr-1 inline-block h-2 w-3 rounded-sm align-middle ${tone}`} />{l} {fmtTokens(v)}</span>)}</div>
+                  </>
+                ) : <p className="mt-1 text-[12px] text-fog">No token usage in this range.</p>;
+              })()}
+              {data.topSessions.length ? (
+                <div className="mt-3 border-t border-line pt-3">
+                  <div className="text-[11px] font-medium text-ash">Most expensive sessions</div>
+                  <ul className="mt-1.5 space-y-1 text-[12.5px]">
+                    {data.topSessions.map((x) => <li key={x.id} className="flex justify-between gap-2"><a href={`/app/sessions/${encodeURIComponent(x.id)}`} className="truncate text-snow hover:text-teal-300">{x.name ?? x.id.slice(0, 8)}<span className="text-fog"> · {x.owner ?? "—"}</span></a><span className="shrink-0 text-mist">{fmtUsd(x.costUsd)}</span></li>)}
+                  </ul>
+                </div>
+              ) : null}
+            </Panel>
+          </div>
+
+          <Panel title="When sessions start" className="mt-4">
+            <Heatmap cells={data.hours} format={(n) => `${n} session${n === 1 ? "" : "s"}`} ariaLabel="Sessions started by weekday and hour, UTC" />
+            <p className="mt-2 text-[11.5px] text-fog">Sessions started per weekday and hour, UTC. Budgets and approvers want to be awake when this is dark.</p>
+          </Panel>
 
           {t!.sessions === 0 ? (
             <div className="mt-4"><Empty title="No spend in this range" body="Spend appears as sessions report. Try a longer range, or another team." /></div>

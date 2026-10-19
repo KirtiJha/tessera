@@ -44,6 +44,8 @@ export interface SessionView {
   blowouts: number;
   git: GitInfo | null;
   filesChanged: ChangedFile[];
+  /** The session's own tool calls per tool; each agent's are on the agent. */
+  toolCalls: Record<string, number>;
   plan: Plan | null;
   agents: AgentView[];
   openAsk: OpenAsk | null;

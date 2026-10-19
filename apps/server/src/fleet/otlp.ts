@@ -251,6 +251,7 @@ export class OtlpSession {
         tags: {},
         continuedFrom: null,
         activity: [],
+      toolCalls: {},
       },
       events,
     };

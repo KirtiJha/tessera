@@ -159,6 +159,59 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       ),
     ]);
 
+    // What the sessions did, who they waited on, and when they ran.
+    const inRange = `s.org_id = $1 AND s.started_at >= $2::date AND s.started_at < ($3::date + 1)${sessFilter}`;
+    const [tools, toolFails, waits, answerers, hours, cache, topSessions] = await Promise.all([
+      pool.query<{ tool: string; calls: string }>(
+        `SELECT kv.key AS tool, SUM(kv.value::numeric)::bigint AS calls FROM (
+           SELECT s.tool_calls AS tc FROM sessions s WHERE ${inRange}
+           UNION ALL
+           SELECT a.tool_calls FROM agents a JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id WHERE ${inRange}
+         ) x, jsonb_each_text(x.tc) AS kv WHERE kv.value ~ '^[0-9]+$' GROUP BY 1 ORDER BY 2 DESC LIMIT 15`,
+        sessParams,
+      ),
+      pool.query<{ tool: string | null; fails: number }>(
+        `SELECT substring(e.text from '^([A-Za-z_][A-Za-z0-9_.:-]*)') AS tool, COUNT(*)::int AS fails
+           FROM events e JOIN sessions s ON s.org_id = e.org_id AND s.id = e.session_id
+          WHERE e.kind = 'tool.fail' AND e.ts >= $2::date AND e.ts < ($3::date + 1) AND ${inRange} GROUP BY 1`,
+        sessParams,
+      ),
+      pool.query<{ kind: string; n: number; p50: number | null; p90: number | null; max: number | null; open: number }>(
+        `SELECT a.kind, COUNT(*)::int AS n,
+                (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (a.closed_at - a.created_at))) * 1000)::float AS p50,
+                (percentile_cont(0.9) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (a.closed_at - a.created_at))) * 1000)::float AS p90,
+                (MAX(EXTRACT(EPOCH FROM (a.closed_at - a.created_at))) * 1000)::float AS max,
+                COUNT(*) FILTER (WHERE a.closed_at IS NULL)::int AS open
+           FROM asks a JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id
+          WHERE a.created_at >= $2::date AND a.created_at < ($3::date + 1) AND ${inRange.replace("s.started_at >= $2::date AND s.started_at < ($3::date + 1)", "TRUE")} GROUP BY a.kind ORDER BY 2 DESC`,
+        sessParams,
+      ),
+      pool.query<{ name: string; n: number; p50: number | null }>(
+        `SELECT u.name, COUNT(*)::int AS n, (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (a.closed_at - a.created_at))) * 1000)::float AS p50
+           FROM asks a JOIN users u ON u.id = a.answered_by JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id
+          WHERE a.outcome = 'answered' AND a.created_at >= $2::date AND a.created_at < ($3::date + 1) AND ${inRange.replace("s.started_at >= $2::date AND s.started_at < ($3::date + 1)", "TRUE")} GROUP BY u.name ORDER BY 2 DESC LIMIT 8`,
+        sessParams,
+      ),
+      pool.query<{ dow: number; hour: number; n: number }>(`SELECT EXTRACT(ISODOW FROM s.started_at)::int AS dow, EXTRACT(HOUR FROM s.started_at)::int AS hour, COUNT(*)::int AS n FROM sessions s WHERE ${inRange} GROUP BY 1, 2`, sessParams),
+      pool.query<{ input: string | null; cache_read: string | null; cache_write: string | null; output: string | null }>(
+        `SELECT SUM((u->>'input')::numeric) AS input, SUM((u->>'cacheRead')::numeric) AS cache_read, SUM((u->>'cacheWrite')::numeric) AS cache_write, SUM((u->>'output')::numeric) AS output FROM (
+           SELECT jsonb_array_elements(COALESCE(s.usage_by_model, '[]'::jsonb)) AS u FROM sessions s WHERE ${inRange}
+           UNION ALL
+           SELECT jsonb_array_elements(COALESCE(a.usage_by_model, '[]'::jsonb)) FROM agents a JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id WHERE ${inRange}
+         ) x`,
+        sessParams,
+      ),
+      pool.query<{ id: string; name: string | null; owner: string | null; cost: string }>(
+        `SELECT s.id, COALESCE(s.name, s.git->>'repo', s.cwd) AS name, o.name AS owner, SUM(u.cost_usd) AS cost ${FROM} GROUP BY s.id, s.name, s.git, s.cwd, o.name ORDER BY 4 DESC LIMIT 5`,
+        base.slice(0, q.team ? 4 : 3),
+      ),
+    ]);
+    const failsByTool = new Map(toolFails.rows.map((r) => [r.tool ?? "", r.fails]));
+    const heat: number[][] = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
+    for (const r of hours.rows) heat[r.dow - 1]![r.hour] = r.n;
+    const c = cache.rows[0];
+    const promptSide = Number(c?.input ?? 0) + Number(c?.cache_read ?? 0) + Number(c?.cache_write ?? 0);
+
     // Fill every day in the range, so gaps read as zero rather than vanish.
     const byDay = new Map(daily.rows.map((d) => [d.day, d]));
     const series: { day: string; costUsd: number; tokens: number; sessions: number; anomaly?: boolean }[] = [];
@@ -209,6 +262,15 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       groups: groups.rows.map((g) => ({ key: g.key, costUsd: Number(g.cost), tokens: Number(g.tokens), sessions: g.sessions, people: g.people })),
       models: models.rows.map((m) => ({ model: m.model, costUsd: Number(m.cost), sessions: m.sessions })),
       forecast: { monthStart, monthEnd: utcDay(monthEnd.getTime()), monthToDateUsd: mtdUsd, dailyRunRateUsd: runRate, projectedMonthUsd: mtdUsd + runRate * daysLeft },
+      tools: tools.rows.map((r) => ({ tool: r.tool, calls: Number(r.calls), fails: failsByTool.get(r.tool) ?? 0 })),
+      waits: {
+        byKind: waits.rows.map((w) => ({ kind: w.kind, count: w.n, p50Ms: w.p50, p90Ms: w.p90, maxMs: w.max, open: w.open })),
+        answerers: answerers.rows.map((r) => ({ name: r.name, count: r.n, p50Ms: r.p50 })),
+      },
+      /** Sessions started per weekday (Monday first) and UTC hour. */
+      hours: heat,
+      cache: { hitRate: promptSide ? Number(c?.cache_read ?? 0) / promptSide : null, input: Number(c?.input ?? 0), cacheRead: Number(c?.cache_read ?? 0), cacheWrite: Number(c?.cache_write ?? 0), output: Number(c?.output ?? 0) },
+      topSessions: topSessions.rows.map((r) => ({ id: r.id, name: r.name, owner: r.owner, costUsd: Number(r.cost) })),
     };
   });
 

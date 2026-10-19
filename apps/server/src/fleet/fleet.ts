@@ -310,6 +310,7 @@ export class Fleet {
       control: existing?.control ?? { paused: false, reason: null, by: null },
       agents: s.agents,
       activity: s.activity,
+      toolCalls: s.toolCalls,
     };
     if (rec.status === "ended" && !rec.endedAt) rec.endedAt = now;
     // A stop that never met a tool call is moot once the turn is over.

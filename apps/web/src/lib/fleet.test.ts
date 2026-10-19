@@ -25,6 +25,7 @@ const base: SessionView = {
   context: null,
   tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   usageByModel: [],
+  toolCalls: {},
   costUsd: 0,
   unpricedModels: [],
   blowouts: 0,

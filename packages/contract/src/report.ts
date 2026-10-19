@@ -226,6 +226,8 @@ export const SessionReport = z.object({
   continuedFrom: id.nullable().default(null),
   /** The most recent tool calls, newest last. */
   activity: z.array(Action).max(40).default([]),
+  /** The session's own tool calls per tool, over its whole life; agents carry their own. */
+  toolCalls: z.record(short(120), z.number().int().nonnegative()).default({}),
 });
 export type SessionReport = z.infer<typeof SessionReport>;
 

@@ -56,6 +56,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       tags: s.tags ?? {},
       continuedFrom: s.continuedFrom,
       activity: s.activity ?? [],
+      toolCalls: s.toolCalls ?? {},
     },
     events: s.outbox.slice(0, 500),
   };
