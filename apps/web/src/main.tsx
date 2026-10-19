@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
-import { Spinner, ToastProvider } from "./components/ui";
+import { ConfirmProvider, Spinner, ToastProvider } from "./components/ui";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { Invite, SignIn, SignUp } from "./pages/Auth";
 import { Landing } from "./pages/Landing";
@@ -75,7 +75,9 @@ createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
-          <App />
+          <ConfirmProvider>
+            <App />
+          </ConfirmProvider>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

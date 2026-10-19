@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { BellRing, Check, Copy, Hash, Plus, Siren, Webhook, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Button, Empty, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
+import { Button, Empty, Field, Input, Modal, Panel, Select, useConfirm, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
 
@@ -43,6 +43,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 export function Notifications() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [data, setData] = useState<Data | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -104,7 +105,7 @@ export function Notifications() {
                 ) : null}
                 <label className="flex items-center gap-1.5 text-mist"><input type="checkbox" checked={c.enabled} onChange={(e) => patch(c, { enabled: e.target.checked })} /> enabled</label>
                 <Button size="sm" onClick={() => void test(c)}>Send a test</Button>
-                <button onClick={() => { if (confirm(`Delete ${c.name}?`)) void api.del(`/api/admin/channels/${c.id}`).then(load); }} className="text-fog hover:text-rose-400">Delete</button>
+                <button onClick={() => void confirm({ title: `Delete ${c.name}?`, body: "Nothing will be sent there any more.", action: "Delete", tone: "danger" }).then((ok) => { if (ok) void api.del(`/api/admin/channels/${c.id}`).then(load); })} className="text-fog hover:text-rose-400">Delete</button>
               </li>
             ))}
           </ul>

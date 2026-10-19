@@ -1,6 +1,6 @@
 import { Check, Copy, KeyRound, Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Button, Empty, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
+import { Button, Empty, Field, Input, Modal, Panel, Select, useConfirm, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ago, fmtDate } from "../../lib/format";
@@ -32,6 +32,7 @@ function Copyable({ text, mono = true }: { text: string; mono?: boolean }) {
 /** Keys for the API and the CLI. A key acts as its maker, limited to the scopes chosen. */
 export function ApiKeys() {
   const toast = useToast();
+  const confirm = useConfirm();
   const { me } = useAuth();
   const [keys, setKeys] = useState<Key[] | null>(null);
   const [scopes, setScopes] = useState<ScopeInfo[]>([]);
@@ -57,7 +58,7 @@ export function ApiKeys() {
     }
   };
   const revoke = async (k: Key) => {
-    if (!confirm(`Revoke "${k.name}"? Anything using it stops working at once.`)) return;
+    if (!(await confirm({ title: `Revoke "${k.name}"?`, body: "Anything using it stops working at once.", action: "Revoke", tone: "danger" }))) return;
     await api.del(`/api/keys/${k.id}`);
     toast("Key revoked.");
     await load();

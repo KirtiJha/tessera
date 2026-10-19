@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Empty, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
+import { Button, Empty, Field, Input, Modal, Panel, Select, useConfirm, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtUsd } from "../../lib/format";
 
@@ -10,6 +10,7 @@ interface User { id: string; name: string }
 
 export function Budgets() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [budgets, setBudgets] = useState<Budget[] | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -59,7 +60,7 @@ export function Budgets() {
                       {b.softUsd !== null ? <span>soft {fmtUsd(b.softUsd)}</span> : null}
                       {b.hardUsd !== null ? <span>hard {fmtUsd(b.hardUsd)}{b.enforce ? " · enforced" : ""}</span> : null}
                       <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${b.level === "hard" ? "bg-rose-600/30 text-rose-400" : b.level === "soft" ? "bg-amber-400/15 text-amber-400" : "bg-teal-700/40 text-teal-300"}`}>{b.level === "ok" ? "within budget" : `${b.level} limit reached`}</span>
-                      <button onClick={() => { if (confirm("Delete this budget?")) void api.del(`/api/admin/budgets/${b.id}`).then(load); }} className="text-fog hover:text-rose-400">Delete</button>
+                      <button onClick={() => void confirm({ title: "Delete this budget?", body: "Spending against it stops being watched or enforced.", action: "Delete", tone: "danger" }).then((ok) => { if (ok) void api.del(`/api/admin/budgets/${b.id}`).then(load); })} className="text-fog hover:text-rose-400">Delete</button>
                     </div>
                   </div>
                   <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-slate-3"><div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>

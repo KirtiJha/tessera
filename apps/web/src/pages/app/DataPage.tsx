@@ -1,6 +1,6 @@
 import { AlertTriangle, Download, Lock, ShieldOff, Unlock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Field, Input, Modal, Panel, Select, Spinner, TagInput, Textarea, useToast } from "../../components/ui";
+import { Button, Field, Input, Modal, Panel, Select, Spinner, TagInput, Textarea, useConfirm, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { ago, fmtDate } from "../../lib/format";
 
@@ -39,6 +39,7 @@ function Toggle({ checked, onChange, disabled, title, body }: { checked: boolean
 /** How Tessera keeps data: what is stored, for how long, holds, audit export and streaming, and a person's data. */
 export function DataPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [d, setD] = useState<Data | null>(null);
   const [s, setS] = useState<Settings | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
@@ -91,7 +92,7 @@ export function DataPage() {
         <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 text-[13.5px]">
           <Lock size={18} className="mt-0.5 shrink-0 text-amber-400" />
           <div className="flex-1"><div className="font-medium text-snow">Legal hold is on</div><div className="text-mist">{s.legalHold.reason} · set by {s.legalHold.by} {ago(s.legalHold.since)} ago. Nothing is pruned or erased while it is on.</div></div>
-          {!ro ? <Button size="sm" loading={busy === "release"} onClick={() => { if (confirm("Release the legal hold? Retention starts deleting old data again.")) void run("release", () => api.post("/api/admin/data/legal-hold", { on: false }), "Hold released."); }}><Unlock size={14} /> Release</Button> : null}
+          {!ro ? <Button size="sm" loading={busy === "release"} onClick={() => void confirm({ title: "Release the legal hold?", body: "Retention starts deleting old data again.", action: "Release" }).then((ok) => { if (ok) void run("release", () => api.post("/api/admin/data/legal-hold", { on: false }), "Hold released."); })}><Unlock size={14} /> Release</Button> : null}
         </div>
       ) : null}
 
@@ -161,7 +162,7 @@ export function DataPage() {
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="mr-auto flex items-center gap-2 text-[12.5px] text-mist"><input type="checkbox" checked={st.fromStart} onChange={(e) => setSt({ ...st, fromStart: e.target.checked })} /> Send the whole log from the first entry</label>
               {d.stream ? <Button size="sm" onClick={() => void run("test", async () => { const r = await api.post<{ ok: boolean; error: string | null }>("/api/admin/data/audit/stream/test"); if (!r.ok) throw new ApiError(400, `The destination answered: ${r.error}`); }, "Test entry delivered.")}>Send a test</Button> : null}
-              {d.stream ? <Button size="sm" onClick={() => { if (confirm("Stop streaming the audit log?")) void run("del", () => api.del("/api/admin/data/audit/stream"), "Streaming stopped."); }}>Remove</Button> : null}
+              {d.stream ? <Button size="sm" onClick={() => void confirm({ title: "Stop streaming the audit log?", action: "Stop streaming", tone: "danger" }).then((ok) => { if (ok) void run("del", () => api.del("/api/admin/data/audit/stream"), "Streaming stopped."); })}>Remove</Button> : null}
               <Button size="sm" variant="primary" disabled={!st.url && !d.stream} loading={busy === "stream"} onClick={() => void run("stream", () => api.put("/api/admin/data/audit/stream", { url: st.url.trim() || undefined, format: st.format, headerName: st.headerName.trim() || null, headerValue: st.headerValue || undefined, fromStart: st.fromStart }), "Streaming saved.")}>Save destination</Button>
             </div>
           ) : null}

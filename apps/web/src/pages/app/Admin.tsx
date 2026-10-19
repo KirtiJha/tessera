@@ -1,7 +1,7 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { NavWidthPicker, ThemePicker } from "../../components/Prefs";
-import { Button, Field, Input, Modal, Panel, useToast } from "../../components/ui";
+import { Button, Field, Input, Modal, Panel, Select, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { fmtDate } from "../../lib/format";
 
@@ -68,15 +68,35 @@ export function Prices() {
 // ---- Audit --------------------------------------------------------------------------
 interface Entry { id: number; actorName: string; action: string; targetType: string | null; targetId: string | null; detail: Record<string, unknown>; ip: string | null; createdAt: string; hash: string }
 
+/** Audit actions are dotted names; the first segment is what people filter by. */
+const AUDIT_GROUPS: [string, string][] = [
+  ["", "All actions"],
+  ["session.", "Sessions (answers, stops, messages)"],
+  ["policy.", "Policies"],
+  ["budget.", "Budgets"],
+  ["device.", "Devices"],
+  ["user.", "People"],
+  ["team.", "Teams"],
+  ["sso.", "Single sign-on"],
+  ["scim.", "SCIM"],
+  ["channel.", "Notification channels"],
+  ["price.", "Model prices"],
+  ["apikey.", "API keys"],
+  ["data.", "Data and compliance"],
+  ["audit.", "Audit exports and streams"],
+  ["org.", "Organisation"],
+];
+
 export function Audit() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [verify, setVerify] = useState<{ ok: boolean; checked: number; brokenAt: number | null } | null>(null);
   const [more, setMore] = useState(true);
+  const [action, setAction] = useState("");
   const load = useCallback(async (before?: number) => {
-    const r = await api.get<{ entries: Entry[] }>(`/api/admin/audit?limit=50${before ? `&before=${before}` : ""}`);
+    const r = await api.get<{ entries: Entry[] }>(`/api/admin/audit?limit=50${before ? `&before=${before}` : ""}${action ? `&action=${encodeURIComponent(action)}` : ""}`);
     setEntries((e) => (before ? [...e, ...r.entries] : r.entries));
     setMore(r.entries.length === 50);
-  }, []);
+  }, [action]);
   useEffect(() => void load(), [load]);
   return (
     <div className="mx-auto max-w-5xl p-3 sm:p-5">
@@ -85,7 +105,12 @@ export function Audit() {
           <h1 className="font-display text-[26px] font-semibold tracking-tight">Audit log</h1>
           <p className="mt-1 text-[14px] text-fog">Every change and every action on a session, append-only, each entry hashed with the one before it.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="w-64">
+            <Select aria-label="Filter by action" value={action} onChange={(e) => setAction(e.target.value)} className="h-9 text-[13px]">
+              {AUDIT_GROUPS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </Select>
+          </div>
           {verify ? <span className={`text-[13px] ${verify.ok ? "text-teal-300" : "text-rose-400"}`}>{verify.ok ? `Chain intact · ${verify.checked} entries` : `Chain broken at entry ${verify.brokenAt}`}</span> : null}
           <Button size="sm" onClick={() => void api.get<typeof verify>("/api/admin/audit/verify").then(setVerify)}>Verify chain</Button>
         </div>
@@ -107,6 +132,7 @@ export function Audit() {
           </tbody>
         </table>
       </div>
+      {entries.length === 0 ? <p className="mt-3 text-[13px] text-fog">{action ? "No entries for that kind of action yet." : "No entries yet."}</p> : null}
       {more ? <div className="mt-3"><Button size="sm" onClick={() => void load(entries.at(-1)?.id)}>Load older</Button></div> : null}
     </div>
   );

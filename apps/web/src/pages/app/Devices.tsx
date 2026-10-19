@@ -1,7 +1,7 @@
 import { Copy, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Button, Empty, Field, Input, Modal, Panel, useToast } from "../../components/ui";
+import { Button, Empty, Field, Input, Modal, Panel, useConfirm, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ago, fmtDate } from "../../lib/format";
@@ -20,6 +20,7 @@ function Code({ children }: { children: string }) {
 
 export function Devices() {
   const toast = useToast();
+  const confirm = useConfirm();
   const { isAdmin } = useAuth();
   const [params] = useSearchParams();
   const [devices, setDevices] = useState<Device[] | null>(null);
@@ -53,7 +54,7 @@ export function Devices() {
     }
   };
   const revoke = async (d: Device) => {
-    if (!confirm(`Revoke "${d.label}"? Its reporter will stop being accepted at once.`)) return;
+    if (!(await confirm({ title: `Revoke "${d.label}"?`, body: "Its reporter will stop being accepted at once.", action: "Revoke", tone: "danger" }))) return;
     await api.post(`/api/admin/devices/${d.id}/revoke`);
     toast("Revoked.");
     await load();

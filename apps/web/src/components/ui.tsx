@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, X } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 
@@ -133,6 +133,116 @@ export function Empty({ title, body, action }: { title: string; body: string; ac
       {action ? <div className="mt-5">{action}</div> : null}
     </div>
   );
+}
+
+// ---- confirm ----------------------------------------------------------------
+export interface ConfirmOptions {
+  title: string;
+  body?: ReactNode;
+  /** The button that does it. */
+  action?: string;
+  cancel?: string;
+  tone?: "danger" | "default";
+}
+const ConfirmCtx = createContext<(o: ConfirmOptions) => Promise<boolean>>(() => Promise.resolve(false));
+
+/** An in-app confirm dialog in place of the browser's: `if (!(await confirm({ title, action }))) return;`. Escape and the backdrop answer no. */
+export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const [pending, setPending] = useState<{ o: ConfirmOptions; resolve: (v: boolean) => void } | null>(null);
+  const ask = useCallback((o: ConfirmOptions) => new Promise<boolean>((resolve) => setPending({ o, resolve })), []);
+  const answer = (v: boolean) => {
+    pending?.resolve(v);
+    setPending(null);
+  };
+  return (
+    <ConfirmCtx.Provider value={ask}>
+      {children}
+      <Modal open={!!pending} onClose={() => answer(false)} title={pending?.o.title ?? ""} width={440}>
+        {pending?.o.body ? <div className="text-[13.5px] leading-relaxed text-mist">{pending.o.body}</div> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button onClick={() => answer(false)}>{pending?.o.cancel ?? "Cancel"}</Button>
+          <Button variant={pending?.o.tone === "danger" ? "danger" : "primary"} autoFocus onClick={() => answer(true)}>{pending?.o.action ?? "Confirm"}</Button>
+        </div>
+      </Modal>
+    </ConfirmCtx.Provider>
+  );
+}
+
+export function useConfirm() {
+  return useContext(ConfirmCtx);
+}
+
+// ---- table ------------------------------------------------------------------
+export interface Column<T> {
+  key: string;
+  header: ReactNode;
+  cell: (row: T) => ReactNode;
+  /** Sortable by this key. What sorting means (server or client) is the page's business. */
+  sortable?: boolean;
+  align?: "left" | "right";
+  className?: string;
+  width?: string;
+}
+export interface Sort {
+  key: string;
+  dir: "asc" | "desc";
+}
+
+/** The one table. Sortable headers announce their state; the page owns the sort and the rows. */
+export function Table<T>({ columns, rows, rowKey, sort, onSort, rowClassName, minWidth, caption }: { columns: Column<T>[]; rows: T[]; rowKey: (row: T) => string; sort?: Sort | null; onSort?: (s: Sort) => void; rowClassName?: (row: T) => string | undefined; minWidth?: number; caption?: string }) {
+  const pad = (i: number) => (i === 0 ? "pl-4 pr-3" : i === columns.length - 1 ? "pl-3 pr-4" : "px-3");
+  const toggle = (key: string) => onSort?.(sort?.key === key ? { key, dir: sort.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  return (
+    <div className="overflow-x-auto rounded-xl border border-line">
+      <table className="w-full text-[13px]" style={minWidth ? { minWidth } : undefined}>
+        {caption ? <caption className="sr-only">{caption}</caption> : null}
+        <thead className="bg-slate-1 text-left text-[11.5px] text-fog">
+          <tr>
+            {columns.map((c, i) => {
+              const active = sort?.key === c.key;
+              return (
+                <th key={c.key} scope="col" style={c.width ? { width: c.width } : undefined} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined} className={`py-2.5 font-medium ${pad(i)} ${c.align === "right" ? "text-right" : ""}`}>
+                  {c.sortable && onSort ? (
+                    <button type="button" onClick={() => toggle(c.key)} className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-snow ${active ? "text-snow" : ""}`}>
+                      {c.header}
+                      {active ? sort.dir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} /> : <ChevronsUpDown size={12} className="text-ash" />}
+                    </button>
+                  ) : (
+                    c.header
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {rows.map((r) => (
+            <tr key={rowKey(r)} className={rowClassName?.(r) ?? "hover:bg-slate-1"}>
+              {columns.map((c, i) => (
+                <td key={c.key} className={`py-2.5 ${pad(i)} ${c.align === "right" ? "text-right" : ""} ${c.className ?? ""}`}>
+                  {c.cell(r)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Client-side sorting for a table whose rows are all in hand. Nulls sort last either way. */
+export function sortRows<T>(rows: T[], sort: Sort | null | undefined, value: (row: T, key: string) => string | number | null | undefined): T[] {
+  if (!sort) return rows;
+  const dir = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const x = value(a, sort.key);
+    const y = value(b, sort.key);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * dir;
+  });
 }
 
 // ---- tooltip ----------------------------------------------------------------

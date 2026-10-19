@@ -1,6 +1,6 @@
 import { BadgeCheck, CircleDashed, Copy, RefreshCw, ShieldCheck, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { Button, Field, Input, Modal, Panel, Select, Spinner, useToast } from "../../components/ui";
+import { Button, Field, Input, Modal, Panel, Select, Spinner, useConfirm, useToast } from "../../components/ui";
 import { ago } from "../../lib/format";
 import { api, ApiError } from "../../lib/api";
 
@@ -31,6 +31,7 @@ const PROVIDERS: { name: string; issuer: string; note: string }[] = [
 
 export function Sso() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [s, setS] = useState<Settings | null>(null);
   const [f, setF] = useState({ enabled: false, issuer: "", clientId: "", clientSecret: "", jitProvisioning: true, defaultRole: "operator", enforce: false });
   const [domains, setDomains] = useState<string[]>([]);
@@ -96,7 +97,7 @@ export function Sso() {
     setBusy(null);
   };
   const newScimToken = async () => {
-    if (s?.scim.token && !confirm("Make a new token? The current one stops working at once, so update your identity provider straight after.")) return;
+    if (s?.scim.token && !(await confirm({ title: "Make a new SCIM token?", body: "The current one stops working at once, so update your identity provider straight after.", action: "Make a new token" }))) return;
     setBusy("scim");
     try {
       const r = await api.post<{ token: string }>("/api/admin/sso/scim/token");
@@ -225,7 +226,7 @@ export function Sso() {
           {s.scim.token ? <span className="text-mist">Token <span className="font-mono text-snow">{s.scim.token.prefix}…</span> made {ago(s.scim.token.createdAt)} · {s.scim.token.lastUsedAt ? `last used ${ago(s.scim.token.lastUsedAt)}` : "not used yet"}</span> : <span className="text-fog">No token yet.</span>}
           {!ro ? (
             <span className="ml-auto flex gap-2">
-              {s.scim.token ? <Button size="sm" onClick={() => { if (confirm("Revoke the SCIM token? Provisioning stops until you make a new one.")) void api.del("/api/admin/sso/scim/token").then(load); }}>Revoke</Button> : null}
+              {s.scim.token ? <Button size="sm" onClick={() => void confirm({ title: "Revoke the SCIM token?", body: "Provisioning stops until you make a new one.", action: "Revoke", tone: "danger" }).then((ok) => { if (ok) void api.del("/api/admin/sso/scim/token").then(load); })}>Revoke</Button> : null}
               <Button size="sm" variant={s.scim.token ? "secondary" : "primary"} loading={busy === "scim"} onClick={() => void newScimToken()}>{s.scim.token ? <><RefreshCw size={13} /> Rotate</> : "Make a token"}</Button>
             </span>
           ) : null}

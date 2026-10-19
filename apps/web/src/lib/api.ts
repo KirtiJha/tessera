@@ -8,9 +8,10 @@ export class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // No content-type without a body: Fastify answers 400 to a DELETE that claims JSON and sends none.
   const res = await fetch(path, {
     method,
-    headers: { "content-type": "application/json", "x-tessera-client": "web" },
+    headers: { "x-tessera-client": "web", ...(body === undefined ? {} : { "content-type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
   });

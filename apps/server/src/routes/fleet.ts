@@ -93,8 +93,19 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
         search: z.string().max(100).optional(),
+        sort: z.enum(["started", "name", "owner", "duration", "tokens"]).default("started"),
+        dir: z.enum(["asc", "desc"]).default("desc"),
       })
       .parse(req.query);
+    // Sort keys map to fixed expressions; nothing from the query reaches the SQL text.
+    const ORDER: Record<typeof q.sort, string> = {
+      started: "s.started_at",
+      name: "LOWER(COALESCE(s.name, s.git->>'repo', s.cwd, s.id))",
+      owner: "LOWER(u.name)",
+      duration: "(COALESCE(s.ended_at, s.dropped_at) - s.started_at)",
+      tokens: "(COALESCE((s.tokens->>'input')::bigint, 0) + COALESCE((s.tokens->>'output')::bigint, 0) + COALESCE((s.tokens->>'cacheRead')::bigint, 0) + COALESCE((s.tokens->>'cacheWrite')::bigint, 0))",
+    };
+    const orderBy = `${ORDER[q.sort]} ${q.dir === "asc" ? "ASC NULLS FIRST" : "DESC NULLS LAST"}, s.id`;
     const where: string[] = ["s.org_id = $1", "(s.ended_at IS NOT NULL OR s.dropped_at IS NOT NULL)"];
     const params: unknown[] = [p.orgId];
     if (q.owner) {
@@ -123,7 +134,7 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
               (SELECT COALESCE(jsonb_agg(jsonb_build_object('usageByModel', a.usage_by_model)), '[]'::jsonb) FROM agents a WHERE a.org_id = s.org_id AND a.session_id = s.id) AS agent_usage,
               (SELECT COUNT(*)::int FROM agents a WHERE a.org_id = s.org_id AND a.session_id = s.id AND a.status = 'failed') AS failed_agents
          FROM sessions s LEFT JOIN users u ON u.id = s.owner_id
-        WHERE ${w} ORDER BY s.started_at DESC, s.id LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        WHERE ${w} ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     const table = await priceTableFor(p.orgId);

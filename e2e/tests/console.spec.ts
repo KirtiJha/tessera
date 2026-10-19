@@ -232,3 +232,58 @@ test("the wall works from the keyboard: move, allow, select, act on several at o
   await page.keyboard.press("/");
   await expect(page.getByPlaceholder(/Filter by name/)).toBeFocused();
 });
+
+test("history filters and sorts from the URL, the audit log filters by action, and deleting asks in-app", async () => {
+  // Two ended sessions a week apart, so there is something to filter and sort.
+  const old = new Date(Date.now() - 6 * 86_400_000);
+  for (const [suffix, name, startedAt] of [["-h1", "Old migration", old.toISOString()], ["-h2", "Fresh refactor", new Date(Date.now() - 3_600_000).toISOString()]] as const) {
+    const r = await report(page.request, { id: `${sessionId}${suffix}`, name, status: "ended", startedAt, endedAt: new Date().toISOString(), endReason: "exit" });
+    expect(r.ok()).toBeTruthy();
+  }
+  await page.goto("/app/history");
+  await expect(page.getByRole("link", { name: "Old migration" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fresh refactor" })).toBeVisible();
+  // Today only: the week-old one goes.
+  await page.getByLabel("Time range").selectOption("today");
+  await expect(page).toHaveURL(/range=today/);
+  await expect(page.getByRole("link", { name: "Fresh refactor" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Old migration" })).toBeHidden();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByRole("link", { name: "Old migration" })).toBeVisible();
+  // Sort by Started ascending: the oldest first, and the URL says so.
+  await page.getByRole("button", { name: "Started" }).click(); // desc is the default, so the first click flips to asc
+  await expect(page).toHaveURL(/sort=started/);
+  await expect(page).toHaveURL(/dir=asc/);
+  await expect(page.getByRole("columnheader", { name: /Started/ })).toHaveAttribute("aria-sort", "ascending");
+  const names = page.locator("tbody tr td:nth-child(2) a");
+  await expect(names.first()).toHaveText("Old migration");
+  // The person filter narrows to the owner; a stranger's id would show nothing.
+  await page.getByLabel("Person").selectOption({ label: "Erin Example" });
+  await expect(page).toHaveURL(/owner=/);
+  await expect(page.getByRole("link", { name: "Fresh refactor" })).toBeVisible();
+
+  // Audit: only session actions, then everything again.
+  await page.goto("/app/audit");
+  await page.getByLabel("Filter by action").selectOption("session.");
+  await expect.poll(async () => page.locator("tbody tr").count()).toBeGreaterThan(0);
+  const actions = await page.locator("tbody tr td:nth-child(3)").allInnerTexts();
+  expect(actions.every((a) => a.startsWith("session."))).toBe(true);
+  await page.getByLabel("Filter by action").selectOption("");
+  await expect.poll(async () => page.locator("tbody tr").count()).toBeGreaterThan(actions.length);
+
+  // Deleting a budget asks in the app, not with the browser's dialog: Cancel keeps it, Delete removes it.
+  const b = await page.request.put("/api/admin/budgets", { headers: W, data: { scopeType: "org", scopeId: null, window: "daily", softUsd: 1234.5, hardUsd: null, enforce: false } });
+  expect(b.ok()).toBeTruthy();
+  await page.goto("/app/budgets");
+  const row = page.locator("div.rounded-lg", { hasText: "soft $1,234.50" }).first(); // budgets are cards, not table rows
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "Delete" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete this budget?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: "Delete this budget?" }).getByRole("button", { name: "Delete" }).click();
+  await expect(row).toBeHidden();
+});
