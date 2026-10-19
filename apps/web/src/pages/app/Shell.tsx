@@ -1,7 +1,9 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, BarChart3, BellRing, ChevronsLeft, ChevronsRight, Clock, Database, KeyRound, KeySquare, Laptop, LogOut, Menu as MenuIcon, PiggyBank, ScrollText, Settings, ShieldCheck, Tag, Users, Wallet, X } from "lucide-react";
+import { Activity, BarChart3, BellRing, ChevronsLeft, ChevronsRight, Clock, Database, KeyRound, KeySquare, Laptop, LogOut, Menu as MenuIcon, PiggyBank, ScrollText, Search, Settings, ShieldCheck, Tag, Users, Wallet, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { AttentionBell } from "../../components/AttentionBell";
+import { CommandPalette } from "../../components/CommandPalette";
 import { Mark, Wordmark } from "../../components/Logo";
 import { ThemePicker, useNavWidth } from "../../components/Prefs";
 import { Menu, MenuHeading, MenuItem, MenuSeparator, Tooltip } from "../../components/ui";
@@ -96,7 +98,16 @@ function UserMenu() {
   );
 }
 
-function TopBar({ onMenu }: { onMenu: () => void }) {
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** A field is focused: plain-letter shortcuts must not fire. */
+export function typingInField(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || !el.tagName) return false;
+  return el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+}
+
+function TopBar({ onMenu, onSearch, now }: { onMenu: () => void; onSearch: () => void; now: number }) {
   const { connected, kpis } = useFleet();
   const sessions = useSessions();
   const waiting = sessions.filter((s) => sessionKind(s) === "waiting").length;
@@ -121,30 +132,54 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
           </NavLink>
         ) : null}
         <span className="inline-flex items-center gap-1.5"><Wallet size={14} /> <span>{kpis ? `$${kpis.costTodayUsd.toFixed(2)}` : "—"}<span className="hidden sm:inline"> today</span></span></span>
+        <button type="button" onClick={onSearch} aria-label="Open search" title={`Search (${IS_MAC ? "⌘" : "Ctrl+"}K)`} className="inline-flex h-9 items-center gap-2 rounded-lg text-mist hover:bg-slate-2 hover:text-snow md:border md:border-line md:bg-slate-1 md:px-2.5 md:pr-2 md:text-fog">
+          <span className="inline-flex h-9 w-9 items-center justify-center md:h-auto md:w-auto"><Search size={16} /></span>
+          <span className="hidden text-[12.5px] md:inline">Search</span>
+          <kbd className="hidden rounded border border-line-2 px-1 text-[10.5px] text-ash md:inline">{IS_MAC ? "⌘" : "Ctrl"} K</kbd>
+        </button>
+        <AttentionBell now={now} />
         <UserMenu />
       </div>
     </header>
   );
 }
 
+/** A clock for "ago" labels in the chrome; one per shell, ticking every 15 s. */
+function useNow(ms = 15_000): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
+}
+
 export function Shell() {
   const [menu, setMenu] = useState(false);
+  const [palette, setPalette] = useState(false);
   const [width, setWidth] = useNavWidth();
   const rail = width === "rail";
   const { pathname } = useLocation();
+  const now = useNow();
   // Following a link closes the menu on small screens.
   useEffect(() => setMenu(false), [pathname]);
   useEffect(() => {
-    if (!menu) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(false);
+    const onKey = (e: KeyboardEvent) => {
+      // ⌘K / Ctrl+K opens search from anywhere, even inside a field.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+      } else if (e.key === "Escape") setMenu(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menu]);
+  }, []);
   return (
     <ThemeScope>
       <FleetProvider>
         <div className="flex h-full flex-col bg-ink">
-          <TopBar onMenu={() => setMenu(true)} />
+          <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} now={now} />
+          <CommandPalette open={palette} onClose={() => setPalette(false)} />
           <AnimatePresence>
             {menu ? (
               <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">

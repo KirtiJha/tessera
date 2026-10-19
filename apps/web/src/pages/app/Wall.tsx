@@ -2,7 +2,7 @@ import type { SessionView } from "@tessera/contract";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { KIND, SessionCard, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
 import { Empty } from "../../components/ui";
@@ -55,7 +55,12 @@ export function Wall() {
   const sessions = useSessions();
   const { me } = useAuth();
   const now = useNow();
-  const [q, setQ] = useState("");
+  // ?q= seeds the search (the command palette sends a person's name here); typing takes over from there.
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(params.get("q") ?? "");
+  useEffect(() => {
+    if (params.has("q")) setQ(params.get("q") ?? "");
+  }, [params]);
   // Remembered per browser; a stale or hand-edited value falls back to the default.
   const [onlyPref, setOnly] = usePref<SessionKind | "all" | "mine">("wall.only", "all");
   const only = onlyPref === "all" || onlyPref === "mine" || (ORDER as readonly string[]).includes(onlyPref) ? onlyPref : "all";

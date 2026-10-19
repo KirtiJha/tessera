@@ -158,3 +158,44 @@ test("the console remembers the theme and the navigation width, and leaves the l
   await expect.poll(theme).toBe("dark");
   await expect.poll(navWidth).toBe(220);
 });
+
+test("the bell lists what needs a person, and ⌘K reaches a session, a page and a person", async () => {
+  // A second session waits on a question; the bell counts it and opens to it.
+  const waitingId = `${sessionId}-bell`;
+  const r = await report(page.request, { id: waitingId, name: "Ledger reconciliation", status: "waiting", waitReason: "question", openAsk: { id: "q-bell", kind: "question", createdAt: new Date().toISOString(), tool: "AskUserQuestion", prompt: "Which ledger should be authoritative?", options: ["GL", "Sub-ledger"] } });
+  expect(r.ok()).toBeTruthy();
+  await page.goto("/app");
+  const bell = page.getByRole("button", { name: /1 item needs attention/ });
+  await expect(bell).toBeVisible();
+  await bell.click();
+  const menu = page.getByRole("menu", { name: /needs attention/ });
+  await expect(menu).toContainText("Waiting on someone");
+  await expect(menu).toContainText("Ledger reconciliation · Has a question");
+  await expect(menu).toContainText("Which ledger should be authoritative?");
+  await menu.getByRole("menuitem", { name: /Ledger reconciliation/ }).click();
+  await page.waitForURL(`**/app/sessions/${waitingId}`);
+
+  // ⌘K (Ctrl+K here) finds the live session by name and opens it on Enter.
+  await page.goto("/app/history");
+  await expect(page.getByRole("button", { name: "Open search" })).toBeVisible(); // the shell, and its key listener, are mounted
+  await page.keyboard.press("Control+k");
+  const box = page.getByRole("combobox", { name: "Search" });
+  await expect(box).toBeFocused();
+  await box.fill("ledger rec");
+  const results = page.getByRole("listbox");
+  await expect(results.getByRole("option", { name: /Ledger reconciliation/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.waitForURL(`**/app/sessions/${waitingId}`);
+
+  // Pages and people are reachable the same way; a person lands on the wall filtered to them.
+  await page.getByRole("button", { name: "Open search" }).click();
+  await box.fill("audit");
+  await expect(results.getByRole("option", { name: /Audit log/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(box).toBeHidden();
+  await page.keyboard.press("Control+k");
+  await box.fill("erin");
+  await results.getByRole("option", { name: /^Erin Example/ }).click(); // the person, not the sessions she owns
+  await page.waitForURL("**/app?q=Erin*");
+  await expect(page.getByPlaceholder(/Filter by name/)).toHaveValue("Erin Example");
+});
