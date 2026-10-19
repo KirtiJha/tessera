@@ -1,4 +1,5 @@
 import { riskForAsk, type SessionView } from "@tessera/contract";
+import { Check } from "lucide-react";
 import { memo } from "react";
 import { RiskChips } from "./Approval";
 import { Link } from "react-router-dom";
@@ -71,7 +72,7 @@ export function AgentStrip({ s }: { s: SessionView }) {
 /** Runtimes other than Claude Code get a label; Claude Code is the default and needs none. */
 const RUNTIME: Record<string, string> = { "codex-cli": "Codex", "gemini-cli": "Gemini", cursor: "Cursor", custom: "OTel" };
 
-export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: SessionView; now: number; isNew?: boolean }) {
+export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = false, selected = false, selecting = false, onSelect, onFocus }: { s: SessionView; now: number; isNew?: boolean; focused?: boolean; selected?: boolean; selecting?: boolean; onSelect?: (id: string) => void; onFocus?: (id: string) => void }) {
   const kind = sessionKind(s);
   const k = KIND[kind];
   const plan = s.plan?.steps ?? [];
@@ -84,10 +85,12 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: Ses
   const risk = s.openAsk ? riskForAsk(s.openAsk.tool, s.openAsk.detail, s.cwd) : [];
 
   return (
-    <div className={isNew ? "tile-enter" : undefined}>
+    <div className={`group relative ${isNew ? "tile-enter" : ""}`}>
       <Link
         to={`/app/sessions/${encodeURIComponent(s.id)}`}
-        className={`relative block overflow-hidden rounded-xl border bg-slate-1 shadow-tile transition-colors hover:border-line-2 ${kind === "waiting" ? "breathe border-amber-400/50" : "border-line"}`}
+        aria-current={focused ? "true" : undefined}
+        onFocus={() => onFocus?.(s.id)}
+        className={`relative block overflow-hidden rounded-xl border bg-slate-1 shadow-tile transition-colors hover:border-line-2 ${kind === "waiting" ? "breathe border-amber-400/50" : "border-line"} ${focused ? "ring-2 ring-teal-400 ring-offset-2 ring-offset-ink" : ""} ${selected ? "outline outline-2 -outline-offset-2 outline-violet-400" : ""}`}
         style={{ borderTopColor: k.color, borderTopWidth: 3 }}
       >
         <div className="px-4 pt-3">
@@ -131,6 +134,21 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew }: { s: Ses
           <div className="py-2"><div className="text-[13px] font-semibold text-snow">{fmtDuration(elapsed)}</div><div className="text-[10.5px] text-fog">elapsed</div></div>
         </div>
       </Link>
+      {onSelect ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={`Select ${sessionLabel(s)}`}
+          onClick={(e) => {
+            e.preventDefault();
+            onSelect(s.id);
+          }}
+          className={`absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-md border shadow-lg transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${selected ? "border-violet-400 bg-violet-400 text-white opacity-100" : "border-line-2 bg-slate-2 text-transparent hover:text-fog"} ${selected || selecting || focused ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
+        >
+          <Check size={13} />
+        </button>
+      ) : null}
     </div>
   );
 });

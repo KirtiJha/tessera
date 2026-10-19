@@ -1,16 +1,19 @@
 import type { SessionView } from "@tessera/contract";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { BulkBar } from "../../components/BulkBar";
 import { KIND, SessionCard, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
-import { Empty } from "../../components/ui";
+import { Empty, useToast } from "../../components/ui";
+import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { usePref } from "../../lib/prefs";
 import { sessionKind, sessionLabel, useFleet, useSessions, type SessionKind } from "../../lib/fleet";
 import { ago, fmtTokens, fmtUsd } from "../../lib/format";
-import { buildRows, CARD_GAP, columnsFor, estimateRow } from "../../lib/wallLayout";
+import { buildRows, CARD_GAP, columnsFor, estimateRow, moveFocus } from "../../lib/wallLayout";
+import { typingInField } from "./Shell";
 
 const ORDER: SessionKind[] = ["waiting", "running", "background", "stale", "done"];
 
@@ -50,17 +53,22 @@ function useFirstSeen(sessions: SessionView[]): Map<string, number> {
   return seen.current;
 }
 
+const post = (id: string, path: string, body?: unknown) => api.post(`/api/fleet/sessions/${encodeURIComponent(id)}/${path}`, body);
+
 export function Wall() {
   const { kpis, events, connected, sessions: byId } = useFleet();
   const sessions = useSessions();
   const { me } = useAuth();
   const now = useNow();
+  const nav = useNavigate();
+  const toast = useToast();
   // ?q= seeds the search (the command palette sends a person's name here); typing takes over from there.
   const [params] = useSearchParams();
   const [q, setQ] = useState(params.get("q") ?? "");
   useEffect(() => {
     if (params.has("q")) setQ(params.get("q") ?? "");
   }, [params]);
+  const searchRef = useRef<HTMLInputElement>(null);
   // Remembered per browser; a stale or hand-edited value falls back to the default.
   const [onlyPref, setOnly] = usePref<SessionKind | "all" | "mine">("wall.only", "all");
   const only = onlyPref === "all" || onlyPref === "mine" || (ORDER as readonly string[]).includes(onlyPref) ? onlyPref : "all";
@@ -127,6 +135,117 @@ export function Wall() {
     overscan: 3,
   });
 
+  // ---- keyboard focus and selection ---------------------------------------
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // A card that left the wall (ended, filtered out) cannot stay focused or selected.
+  useEffect(() => {
+    const ids = new Set(filtered.map((s) => s.id));
+    if (focusId && !ids.has(focusId)) setFocusId(null);
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered, focusId]);
+
+  // Keep the focused card in view on the virtualized wall.
+  useEffect(() => {
+    if (!focusId) return;
+    const i = rows.findIndex((r) => r.kind === "cards" && r.items.some((s) => s.id === focusId));
+    if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, rows]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  /** `a` / `d` on a waiting card: the card already shows the command or diff and its risk, so this is an informed answer. */
+  const answerFocused = useCallback(
+    async (id: string, yes: boolean) => {
+      const s = byId.get(id);
+      const ask = s?.openAsk;
+      if (!s || !ask) return toast("That session is not waiting on anything.", "info");
+      if (ask.kind === "question") return toast("Open the session to answer its question.", "info");
+      const decision = ask.kind === "plan" ? (yes ? "approve" : "reject") : yes ? "allow" : "deny";
+      try {
+        await post(id, "answer", { askId: ask.id, decision });
+        toast(`${sessionLabel(s)}: ${ask.kind === "plan" ? (yes ? "plan approved" : "plan sent back") : yes ? "allowed once" : "denied"}.`);
+      } catch (e) {
+        toast(e instanceof ApiError ? e.message : "Could not send that.", "error");
+      }
+    },
+    [byId, toast],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const inField = typingInField(e.target);
+      if (e.key === "/" && !inField) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (inField) return;
+      const move = (key: string) => setFocusId((cur) => moveFocus(rows, cur, key));
+      switch (e.key) {
+        case "ArrowRight":
+        case "ArrowLeft":
+        case "ArrowDown":
+        case "ArrowUp":
+        case "Home":
+        case "End":
+          e.preventDefault();
+          move(e.key);
+          break;
+        case "j":
+          move("ArrowRight");
+          break;
+        case "k":
+          move("ArrowLeft");
+          break;
+        case "Enter":
+          if (focusId) nav(`/app/sessions/${encodeURIComponent(focusId)}`);
+          break;
+        case "x":
+          if (focusId) toggleSelect(focusId);
+          break;
+        case "a":
+        case "d":
+          if (focusId) void answerFocused(focusId, e.key === "a");
+          break;
+        case "Escape":
+          if (selected.size) setSelected(new Set());
+          else setFocusId(null);
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rows, focusId, selected.size, nav, toggleSelect, answerFocused]);
+
+  /** Try each selected session; the server says per session whether this person may. Failures stay selected. */
+  const runBulk = async (verb: string, past: string, fn: (id: string) => Promise<unknown>) => {
+    const ids = [...selected];
+    setBusy(verb);
+    const results = await Promise.allSettled(ids.map(fn));
+    const failed = ids.filter((_, i) => results[i]!.status === "rejected");
+    const reason = results.find((r): r is PromiseRejectedResult => r.status === "rejected")?.reason;
+    const ok = ids.length - failed.length;
+    if (failed.length) toast(`${past} ${ok} of ${ids.length}. ${failed.length} refused: ${reason instanceof ApiError ? reason.message : "not allowed"}`, ok ? "info" : "error");
+    else toast(`${past} ${ok} session${ok === 1 ? "" : "s"}.`);
+    setSelected(new Set(failed));
+    setBusy(null);
+  };
+
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -154,12 +273,12 @@ export function Wall() {
             </div>
             <label className="relative w-full sm:ml-auto sm:w-auto">
               <Search size={14} className="absolute left-2.5 top-2.5 text-fog" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name, branch, person, model…" className="h-9 w-full rounded-lg sm:w-72 border border-line bg-slate-1 pl-8 pr-3 text-[13px] text-snow placeholder:text-ash focus:border-teal-400 focus:outline-none" />
+              <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Escape" && (e.currentTarget.value ? setQ("") : e.currentTarget.blur())} placeholder="Filter by name, branch, person, model…" className="h-9 w-full rounded-lg sm:w-72 border border-line bg-slate-1 pl-8 pr-3 text-[13px] text-snow placeholder:text-ash focus:border-teal-400 focus:outline-none" />
             </label>
           </div>
         </div>
 
-        <div ref={scrollRef} className="pane min-h-0 flex-1 overflow-y-auto border-t border-line px-3 pb-5 pt-3 sm:px-5">
+        <div ref={scrollRef} className={`pane min-h-0 flex-1 overflow-y-auto border-t border-line px-3 pt-3 sm:px-5 ${selected.size ? "pb-24" : "pb-5"}`}>
           {sessions.length === 0 ? (
             <Empty
               title={connected ? "Nothing is reporting yet" : "Connecting to the fleet"}
@@ -183,7 +302,7 @@ export function Wall() {
                       <div className="grid pb-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: CARD_GAP }}>
                         {row.items.map((s) => {
                           const first = firstSeen.get(s.id) ?? 0;
-                          return <SessionCard key={s.id} s={s} now={now} isNew={first > 0 && now - first < 1500} />;
+                          return <SessionCard key={s.id} s={s} now={now} isNew={first > 0 && now - first < 1500} focused={focusId === s.id} selected={selected.has(s.id)} selecting={selected.size > 0} onSelect={toggleSelect} onFocus={setFocusId} />;
                         })}
                       </div>
                     )}
@@ -219,6 +338,18 @@ export function Wall() {
           </ul>
         )}
       </aside>
+
+      <BulkBar
+        count={selected.size}
+        shown={filtered.length}
+        busy={busy}
+        onSelectAll={() => setSelected(new Set(filtered.map((s) => s.id)))}
+        onClear={() => setSelected(new Set())}
+        onPause={() => void runBulk("pause", "Paused", (id) => post(id, "pause", { paused: true }))}
+        onResume={() => void runBulk("resume", "Resumed", (id) => post(id, "pause", { paused: false }))}
+        onStop={(reason) => void runBulk("stop", "Stopped", (id) => post(id, "stop", reason ? { reason } : {}))}
+        onMessage={(text) => void runBulk("message", "Messaged", (id) => post(id, "message", { text }))}
+      />
     </div>
   );
 }

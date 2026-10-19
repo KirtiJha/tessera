@@ -199,3 +199,36 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await page.waitForURL("**/app?q=Erin*");
   await expect(page.getByPlaceholder(/Filter by name/)).toHaveValue("Erin Example");
 });
+
+test("the wall works from the keyboard: move, allow, select, act on several at once", async () => {
+  const permId = `${sessionId}-perm`;
+  const r = await report(page.request, { id: permId, name: "Bulk approve me", status: "waiting", waitReason: "permission", openAsk: { id: "p-kbd", kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "pnpm test", options: [], detail: { command: "pnpm test" } } });
+  expect(r.ok()).toBeTruthy();
+  await page.goto("/app");
+  await expect(page.getByRole("button", { name: "Open search" })).toBeVisible();
+  await expect(page.getByText("Bulk approve me")).toBeVisible();
+  // j focuses the first card: the newest waiting session.
+  await page.keyboard.press("j");
+  const focused = page.locator('a[aria-current="true"]');
+  await expect(focused).toHaveCount(1);
+  await expect(focused).toContainText("Bulk approve me");
+  // a answers the permission prompt from the card, which shows the command and its risk.
+  await page.keyboard.press("a");
+  await expect(page.getByText(/Bulk approve me: allowed once/)).toBeVisible();
+  // x selects; the bar offers the rest; Pause applies to every selected session.
+  await page.keyboard.press("x");
+  const bar = page.getByRole("toolbar", { name: "Selected sessions" });
+  await expect(bar).toContainText("1 selected");
+  await bar.getByRole("button", { name: /Select all \d+ shown/ }).click();
+  await expect(bar).toContainText(/[2-9] selected/);
+  await bar.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByText(/Paused \d+ sessions?\./)).toBeVisible();
+  await expect(bar).toBeHidden();
+  // ? explains the keys; / jumps to the filter box.
+  await page.keyboard.press("?");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeHidden();
+  await page.keyboard.press("/");
+  await expect(page.getByPlaceholder(/Filter by name/)).toBeFocused();
+});

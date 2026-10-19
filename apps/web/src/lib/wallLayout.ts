@@ -35,3 +35,37 @@ export function buildRows<T extends { id: string }>(groups: [string, T[]][], col
 export function estimateRow<T>(row: WallRow<T> | undefined): number {
   return row?.kind === "header" ? HEADER_HEIGHT : CARD_ROW_HEIGHT;
 }
+
+/**
+ * Where keyboard focus goes next. Arrows move on the grid as laid out (down
+ * keeps the column, clamped to a shorter row); Home and End jump; anything
+ * else stays. With no current card, the first (or, for End, the last) is it.
+ */
+export function moveFocus<T extends { id: string }>(rows: WallRow<T>[], current: string | null, key: string): string | null {
+  const cards = rows.filter((r): r is Extract<WallRow<T>, { kind: "cards" }> => r.kind === "cards");
+  const flat = cards.flatMap((r, ri) => r.items.map((it, ci) => ({ id: it.id, ri, ci })));
+  if (!flat.length) return null;
+  const pos = flat.findIndex((p) => p.id === current);
+  if (pos < 0) return key === "End" ? flat[flat.length - 1]!.id : flat[0]!.id;
+  const here = flat[pos]!;
+  const inRow = (ri: number) => {
+    const row = cards[ri];
+    return row ? row.items[Math.min(here.ci, row.items.length - 1)]!.id : here.id;
+  };
+  switch (key) {
+    case "ArrowRight":
+      return flat[Math.min(pos + 1, flat.length - 1)]!.id;
+    case "ArrowLeft":
+      return flat[Math.max(pos - 1, 0)]!.id;
+    case "ArrowDown":
+      return inRow(here.ri + 1);
+    case "ArrowUp":
+      return inRow(here.ri - 1);
+    case "Home":
+      return flat[0]!.id;
+    case "End":
+      return flat[flat.length - 1]!.id;
+    default:
+      return here.id;
+  }
+}

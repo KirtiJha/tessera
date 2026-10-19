@@ -6,6 +6,7 @@ import { AttentionBell } from "../../components/AttentionBell";
 import { CommandPalette } from "../../components/CommandPalette";
 import { Mark, Wordmark } from "../../components/Logo";
 import { ThemePicker, useNavWidth } from "../../components/Prefs";
+import { Shortcuts } from "../../components/Shortcuts";
 import { Menu, MenuHeading, MenuItem, MenuSeparator, Tooltip } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
 import { FleetProvider, sessionKind, useFleet, useSessions } from "../../lib/fleet";
@@ -157,6 +158,7 @@ function useNow(ms = 15_000): number {
 export function Shell() {
   const [menu, setMenu] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [help, setHelp] = useState(false);
   const [width, setWidth] = useNavWidth();
   const rail = width === "rail";
   const { pathname } = useLocation();
@@ -169,7 +171,8 @@ export function Shell() {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPalette((p) => !p);
-      } else if (e.key === "Escape") setMenu(false);
+      } else if (e.key === "?" && !e.metaKey && !e.ctrlKey && !typingInField(e.target)) setHelp((h) => !h);
+      else if (e.key === "Escape") setMenu(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -180,6 +183,7 @@ export function Shell() {
         <div className="flex h-full flex-col bg-ink">
           <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} now={now} />
           <CommandPalette open={palette} onClose={() => setPalette(false)} />
+          <Shortcuts open={help} onClose={() => setHelp(false)} />
           <AnimatePresence>
             {menu ? (
               <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
