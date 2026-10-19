@@ -18,6 +18,7 @@ import { fleetRoutes } from "./routes/fleet.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { policyRoutes } from "./routes/policy.js";
+import { meRoutes } from "./routes/me.js";
 import { installPs1, installSh } from "./installers.js";
 import { analyticsRoutes } from "./routes/analytics.js";
 import { apiKeyRoutes } from "./routes/apikeys.js";
@@ -126,6 +127,7 @@ export async function buildApp(): Promise<App> {
   await server.register(adminRoutes, { prefix: "/api/admin" });
   await server.register(analyticsRoutes, { prefix: "/api/analytics" });
   await server.register(apiKeyRoutes, { prefix: "/api/keys" });
+  await server.register(meRoutes, { prefix: "/api/me" });
   await server.register(scimRoutes, { prefix: "/scim/v2" });
   await server.register(dataRoutes, { prefix: "/api/admin/data", fleet });
   server.get("/api/openapi.json", async () => openapi());
@@ -164,6 +166,9 @@ export async function buildApp(): Promise<App> {
   if (existsSync(join(dist, "index.html"))) {
     await server.register(fastifyStatic, { root: dist, wildcard: false, maxAge: "1h", immutable: false, setHeaders: (res, path) => {
       if (/\/assets\//.test(path)) res.setHeader("cache-control", "public, max-age=31536000, immutable");
+      // The service worker and manifest must update as soon as the server does.
+      if (/(sw\.js|manifest\.webmanifest)$/.test(path)) res.setHeader("cache-control", "no-cache");
+      if (path.endsWith(".webmanifest")) res.setHeader("content-type", "application/manifest+json");
     } });
     server.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api/") || req.url.startsWith("/scim/")) return reply.code(404).send({ error: "not found" });

@@ -1,3 +1,4 @@
+import { RuleSuggestions } from "../../components/RuleSuggestions";
 import type { PolicyRule } from "@tessera/contract";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDown, ArrowUp, ChevronDown, FlaskConical, History, Pencil, Plus, ShieldAlert, ShieldCheck, ShieldX, Trash2, type LucideIcon } from "lucide-react";
@@ -247,6 +248,8 @@ export function Policies() {
           {data.version ? <>Version {data.version} in force · {data.updatedBy}, {ago(data.updatedAt!)}</> : "No policy yet"}
         </div>
       </div>
+
+      <RuleSuggestions version={data.version} disabled={dirty} onApplied={() => void load()} />
 
       <AnimatePresence>
         {dirty ? (

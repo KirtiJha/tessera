@@ -109,7 +109,7 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
           </div>
 
           <div className="mt-3 flex items-center gap-2 text-[12px]" style={{ color: k.color }}>
-            <span className="font-medium">{kind === "waiting" ? (s.openAsk ? { question: "Has a question", plan: "Plan needs approval", permission: "Permission needed" }[s.openAsk.kind] : "Waiting for input") : kind === "stale" ? `Silent for ${ago(s.lastSeenAt, now)}` : kind === "done" ? `Ended${s.endReason ? ` · ${s.endReason}` : ""}` : kind === "background" ? "Idle on background work" : runningAgents ? `${runningAgents} agent${runningAgents > 1 ? "s" : ""} working` : "Working"}</span>
+            <span className="font-medium">{kind === "waiting" ? (s.openAsk ? (s.openAsk.inTerminal ? "Waiting in the terminal" : { question: "Has a question", plan: "Plan needs approval", permission: "Permission needed" }[s.openAsk.kind]) : "Waiting for input") : kind === "stale" ? `Silent for ${ago(s.lastSeenAt, now)}` : kind === "done" ? `Ended${s.endReason ? ` · ${s.endReason}` : ""}` : kind === "background" ? "Idle on background work" : runningAgents ? `${runningAgents} agent${runningAgents > 1 ? "s" : ""} working` : "Working"}</span>
             {health.length ? (
               <span className={`ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${health[0]!.level === "attention" ? "bg-rose-600/15 text-rose-400" : "bg-amber-400/15 text-amber-400"}`} title={health.map((h) => `${h.label}: ${h.detail}`).join("\n")} data-health={health[0]!.level}>
                 {health[0]!.label}{health.length > 1 ? ` +${health.length - 1}` : ""}

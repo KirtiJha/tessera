@@ -10,6 +10,8 @@ import { Shortcuts } from "../../components/Shortcuts";
 import { Menu, MenuHeading, MenuItem, MenuSeparator, Tooltip } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
 import { FleetProvider, sessionKind, useFleet, useSessions } from "../../lib/fleet";
+import { PersonalProvider } from "../../lib/personal";
+import { PresenceChip, PresencePicker } from "../../components/PersonalSettings";
 import { ThemeScope } from "../../lib/theme";
 
 /** The left navigation. As a rail it keeps the icons and shows each label as a tooltip. */
@@ -82,11 +84,16 @@ function UserMenu() {
   const name = me?.user.name ?? "";
   const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
   return (
-    <Menu label="Account menu" button={initials} width={272} className="h-8 w-8 bg-slate-3 text-[12px] font-semibold text-snow hover:bg-line-2">
+    <Menu label="Account menu" button={initials} width={340} className="h-8 w-8 bg-slate-3 text-[12px] font-semibold text-snow hover:bg-line-2">
       <MenuHeading>
         <div className="truncate text-[13px] font-medium text-snow">{name}</div>
         <div className="truncate text-[12px] text-fog">{me?.org.name} · {me?.user.role}</div>
       </MenuHeading>
+      <MenuSeparator />
+      <div className="px-2.5 py-1.5">
+        <div className="mb-1.5 text-[11.5px] font-medium text-ash">Where you answer prompts</div>
+        <PresencePicker />
+      </div>
       <MenuSeparator />
       <div className="px-2.5 py-1.5">
         <div className="mb-1.5 text-[11.5px] font-medium text-ash">Theme</div>
@@ -138,6 +145,7 @@ function TopBar({ onMenu, onSearch, now }: { onMenu: () => void; onSearch: () =>
           <span className="hidden text-[12.5px] md:inline">Search</span>
           <kbd className="hidden rounded border border-line-2 px-1 text-[10.5px] text-ash md:inline">{IS_MAC ? "⌘" : "Ctrl"} K</kbd>
         </button>
+        <PresenceChip />
         <AttentionBell now={now} />
         <UserMenu />
       </div>
@@ -188,6 +196,7 @@ export function Shell() {
   return (
     <ThemeScope>
       <FleetProvider>
+        <PersonalProvider>
         <div className="flex h-full flex-col bg-ink">
           {wallMode ? null : <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} now={now} />}
           <CommandPalette open={palette} onClose={() => setPalette(false)} />
@@ -217,6 +226,7 @@ export function Shell() {
             ) : null}
           </div>
         </div>
+        </PersonalProvider>
       </FleetProvider>
     </ThemeScope>
   );

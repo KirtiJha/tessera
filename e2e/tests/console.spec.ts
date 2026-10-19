@@ -250,7 +250,11 @@ test("the wall works from the keyboard: move, allow, select, act on several at o
 test("history filters and sorts from the URL, the audit log filters by action, and deleting asks in-app", async () => {
   // Two ended sessions a week apart, so there is something to filter and sort.
   const old = new Date(Date.now() - 6 * 86_400_000);
-  for (const [suffix, name, startedAt] of [["-h1", "Old migration", old.toISOString()], ["-h2", "Fresh refactor", new Date(Date.now() - 3_600_000).toISOString()]] as const) {
+  // "Fresh" must have started today in the browser's time zone, even just after midnight.
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const fresh = new Date(Math.max(Date.now() - 3_600_000, midnight.getTime() + 1000));
+  for (const [suffix, name, startedAt] of [["-h1", "Old migration", old.toISOString()], ["-h2", "Fresh refactor", fresh.toISOString()]] as const) {
     const r = await report(page.request, { id: `${sessionId}${suffix}`, name, status: "ended", startedAt, endedAt: new Date().toISOString(), endReason: "exit" });
     expect(r.ok()).toBeTruthy();
   }

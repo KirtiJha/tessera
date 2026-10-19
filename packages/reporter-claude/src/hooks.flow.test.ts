@@ -95,3 +95,39 @@ describe("the state lock", () => {
     unlock();
   });
 });
+
+describe("a prompt nobody answers from Tessera", () => {
+  it("is marked as waiting in the terminal, with no deadline, and closes when its tool call completes there", async () => {
+    const sid = "handoff";
+    posted.length = 0;
+    await handle(cfg, "UserPromptSubmit", { session_id: sid, cwd: home, prompt: "migrate" });
+    // permissionWaitSeconds is 1 in this config: the wait runs out at once.
+    const r = await handle(cfg, "PermissionRequest", { session_id: sid, cwd: home, tool_name: "Bash", tool_input: { command: "pnpm db:migrate" } });
+    expect(r.output, "no decision: the terminal asks").toBeUndefined();
+    const reports = posted.filter((p) => p.path === "/api/ingest/report").map((p) => (p.body.session as { openAsk: { answerableUntil: string | null; inTerminal: boolean } | null }).openAsk);
+    expect(reports.some((a) => a && a.answerableUntil && !a.inTerminal), "the console was told how long it had").toBe(true);
+    expect(reports.at(-1)).toMatchObject({ inTerminal: true, answerableUntil: null });
+    let s = loadState(sid, null, null);
+    expect(s.status).toBe("waiting");
+    expect(s.openAsk?.inTerminal).toBe(true);
+    // Approved in the terminal: the call runs, and the prompt is settled on the wall.
+    await handle(cfg, "PreToolUse", { session_id: sid, cwd: home, tool_name: "Bash", tool_input: { command: "pnpm db:migrate" }, tool_use_id: "m1" });
+    await handle(cfg, "PostToolUse", { session_id: sid, cwd: home, tool_name: "Bash", tool_input: { command: "pnpm db:migrate" }, tool_use_id: "m1", duration_ms: 50 });
+    s = loadState(sid, null, null);
+    expect(s.openAsk).toBeNull();
+    expect(s.status).toBe("running");
+  });
+});
+
+describe("waitSeconds", async () => {
+  const { waitSeconds } = await import("./hooks.js");
+  const base = { ...cfg, permissionWaitSeconds: 55, questionWaitSeconds: 20 };
+  it("follows the person's away setting, inside the hook's timeout", () => {
+    expect(waitSeconds({ ...base, hookTimeoutSeconds: 660 }, "away", "permission")).toBe(600);
+    expect(waitSeconds({ ...base, hookTimeoutSeconds: 660 }, "desk", "permission")).toBe(15);
+    expect(waitSeconds({ ...base, hookTimeoutSeconds: 660 }, "auto", "question")).toBe(20);
+    // An older install: hooks of 90 s and 60 s cap the wait whatever the setting.
+    expect(waitSeconds(base, "away", "permission")).toBe(60);
+    expect(waitSeconds(base, "away", "question")).toBe(30);
+  });
+});

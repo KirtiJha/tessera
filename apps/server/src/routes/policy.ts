@@ -1,4 +1,4 @@
-import { evaluatePolicy, PolicyDoc, PolicyRule } from "@tessera/contract";
+import { evaluatePolicy, PolicyDoc, PolicyRule, ruleFromSuggestion, ruleText, suggestRules, type PastAsk } from "@tessera/contract";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { audit } from "../audit.js";
@@ -99,6 +99,36 @@ export async function policyRoutes(app: FastifyInstance): Promise<void> {
     const c = body.call;
     const v = evaluatePolicy(doc, { tool: c.tool, command: c.command ?? null, paths: c.path ? [c.path] : [], url: c.url ?? null, cwd: c.cwd ?? null, model: c.model ?? null, repo: c.repo ?? null, branch: c.branch ?? null, teamId: c.teamId ?? null });
     return { decision: v.decision, rule: v.rule ? { id: v.rule.id, name: v.rule.name, effect: v.rule.effect, reason: v.rule.reason } : null, dryRun: v.dryRun.map((r) => ({ id: r.id, name: r.name, effect: r.effect })) };
+  });
+
+  /** Allow rules worth adding: patterns people approve again and again and never deny. */
+  app.get("/suggestions", async (req) => {
+    const p = admin(req);
+    const r = await pool.query<{ prompt: string; decision: string | null; person: string | null; at: string }>(
+      `SELECT a.prompt, a.answer->>'decision' AS decision, COALESCE(a.answered_by::text, s.owner_id::text) AS person, a.created_at AS at
+         FROM asks a JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id
+        WHERE a.org_id = $1 AND a.kind = 'permission' AND a.created_at > now() - interval '30 days'
+        ORDER BY a.created_at DESC LIMIT 5000`,
+      [p.orgId],
+    );
+    const asks: PastAsk[] = r.rows.map((x) => ({ prompt: x.prompt, decision: x.decision, person: x.person, at: new Date(x.at).toISOString() }));
+    return { suggestions: suggestRules(asks, (await activePolicy(p.orgId)).doc) };
+  });
+
+  /** Add one suggestion as an allow rule at the end of the policy, so every deny and ask rule above it still wins. */
+  app.post("/suggestions/apply", async (req, reply) => {
+    const p = admin(req);
+    const body = z.object({ tool: z.string().trim().min(1).max(120), content: z.string().trim().max(300).nullable(), baseVersion: z.number().int().min(0) }).parse(req.body);
+    const before = await activePolicy(p.orgId);
+    if (before.version !== body.baseVersion) return reply.code(409).send({ error: `The policy changed since you opened it (now version ${before.version}). Reload to see it.` });
+    const rule = ruleFromSuggestion({ tool: body.tool, content: body.content }, `allow-${Date.now().toString(36)}`);
+    const doc: PolicyDoc = { rules: [...before.doc.rules, rule] };
+    const problem = checkRules(doc);
+    if (problem) return reply.code(400).send({ error: problem });
+    const label = ruleText({ tool: body.tool, content: body.content });
+    const version = await savePolicy(p.orgId, doc, `Allow ${label} (suggested from repeated approvals)`, { userId: p.userId, name: p.name });
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "policy.update", targetType: "policy", targetId: String(version), detail: { version, from: before.version, rules: doc.rules.length, note: `Allow ${label}`, ...diff(before.doc.rules, doc.rules) }, ip: req.ip });
+    return { ok: true, version, rule };
   });
 
   app.get("/decisions", async (req) => {

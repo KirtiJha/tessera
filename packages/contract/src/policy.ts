@@ -66,6 +66,8 @@ export interface DecideResponse {
   reason: string | null;
   /** Stop the agent's turn: Claude Code is told not to continue (someone pressed Stop in Tessera). */
   stop?: boolean;
+  /** Allowed by a rule, not by default: the runtime may skip its own permission prompt. */
+  explicit?: boolean;
 }
 
 /** The facts a rule is matched against. */
