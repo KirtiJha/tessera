@@ -159,12 +159,16 @@ export function Shell() {
   const [menu, setMenu] = useState(false);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
+  const [wallMode, setWallMode] = useState(false);
   const [width, setWidth] = useNavWidth();
   const rail = width === "rail";
   const { pathname } = useLocation();
   const now = useNow();
   // Following a link closes the menu on small screens.
-  useEffect(() => setMenu(false), [pathname]);
+  useEffect(() => {
+    setMenu(false);
+    if (pathname !== "/app") setWallMode(false);
+  }, [pathname]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // ⌘K / Ctrl+K opens search from anywhere, even inside a field.
@@ -172,7 +176,11 @@ export function Shell() {
         e.preventDefault();
         setPalette((p) => !p);
       } else if (e.key === "?" && !e.metaKey && !e.ctrlKey && !typingInField(e.target)) setHelp((h) => !h);
-      else if (e.key === "Escape") setMenu(false);
+      else if (e.key === "w" && !e.metaKey && !e.ctrlKey && !e.altKey && !typingInField(e.target) && window.location.pathname === "/app") setWallMode((w) => !w);
+      else if (e.key === "Escape") {
+        setMenu(false);
+        setWallMode(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -181,7 +189,7 @@ export function Shell() {
     <ThemeScope>
       <FleetProvider>
         <div className="flex h-full flex-col bg-ink">
-          <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} now={now} />
+          {wallMode ? null : <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} now={now} />}
           <CommandPalette open={palette} onClose={() => setPalette(false)} />
           <Shortcuts open={help} onClose={() => setHelp(false)} />
           <AnimatePresence>
@@ -198,10 +206,15 @@ export function Shell() {
             ) : null}
           </AnimatePresence>
           <div className="flex min-h-0 flex-1">
-            <Nav className="hidden lg:flex" rail={rail} onToggle={() => setWidth(rail ? "expanded" : "rail")} />
+            {wallMode ? null : <Nav className="hidden lg:flex" rail={rail} onToggle={() => setWidth(rail ? "expanded" : "rail")} />}
             <main className="pane min-w-0 flex-1 overflow-y-auto">
               <Outlet />
             </main>
+            {wallMode ? (
+              <button type="button" onClick={() => setWallMode(false)} className="fixed bottom-4 right-4 z-40 rounded-lg border border-line-2 bg-slate-1/90 px-3 py-1.5 text-[12px] text-fog shadow-lg backdrop-blur hover:text-snow" aria-label="Leave wall mode">
+                Wall mode · <kbd className="font-mono">w</kbd> or <kbd className="font-mono">Esc</kbd> to leave
+              </button>
+            ) : null}
           </div>
         </div>
       </FleetProvider>

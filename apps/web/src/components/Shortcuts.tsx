@@ -22,6 +22,7 @@ const GROUPS: { title: string; keys: [string[], string][] }[] = [
       [["A"], "Allow once, or approve the plan"],
       [["D"], "Deny, or send the plan back"],
       [["X"], "Select or unselect the card"],
+      [["W"], "Wall mode: hide everything but the wall"],
       [["/"], "Filter the wall"],
       [["Esc"], "Clear the selection, then the focus"],
     ],

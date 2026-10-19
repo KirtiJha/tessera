@@ -6,6 +6,7 @@ import type {
   ContextFill,
   Failure,
   GitInfo,
+  ModelUsage,
   OpenAsk,
   Plan,
   SessionStatus,
@@ -36,6 +37,8 @@ export interface SessionView {
   lastSeenAt: string;
   context: ContextFill | null;
   tokens: TokenCounts;
+  /** Tokens per model, so the console can show cache share and the model mix. */
+  usageByModel: ModelUsage[];
   costUsd: number | null;
   unpricedModels: string[];
   blowouts: number;
@@ -66,6 +69,8 @@ export interface AgentView {
   startedAt: string;
   endedAt: string | null;
   tokens: TokenCounts;
+  /** Tokens per model, so the console can show cache share and the model mix. */
+  usageByModel: ModelUsage[];
   costUsd: number | null;
   context: ContextFill | null;
   toolCalls: Record<string, number>;

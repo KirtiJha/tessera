@@ -125,7 +125,10 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
           {s.context ? <ContextBar used={s.context.used} window={s.context.window} blowouts={s.blowouts} /> : <div className="text-[11.5px] text-ash">Context not reported</div>}
           <div className="flex items-center justify-between">
             <AgentStrip s={s} />
-            {plan.length ? <span className="text-[11.5px] text-fog">plan {planDone}/{plan.length}</span> : null}
+            <span className="flex items-center gap-2 text-[11.5px] text-fog">
+              {s.filesChanged.length ? <span title={`${s.filesChanged.length} files changed, uncommitted`}>{s.filesChanged.length} file{s.filesChanged.length === 1 ? "" : "s"} <span className="text-teal-300">+{s.filesChanged.reduce((n, f) => n + f.added, 0)}</span> <span className="text-rose-400">−{s.filesChanged.reduce((n, f) => n + f.removed, 0)}</span></span> : null}
+              {plan.length ? <span>plan {planDone}/{plan.length}</span> : null}
+            </span>
           </div>
         </div>
 

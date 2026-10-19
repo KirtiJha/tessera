@@ -7,6 +7,8 @@ import { ActionList, AllowMenu, AskSubstance, RiskChips } from "../../components
 import { AgentStrip, ContextBar, KIND, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
+import { SessionTimeline } from "../../components/SessionTimeline";
+import { UsageBreakdown } from "../../components/UsageBreakdown";
 import { Button, Modal, Panel, Select, Spinner, Textarea, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useMedia } from "../../lib/useMedia";
@@ -369,6 +371,14 @@ export function SessionPage() {
             )}
           </Panel>
 
+          <Panel title="Timeline">
+            <SessionTimeline id={s.id} live={detail.live} />
+          </Panel>
+
+          <Panel title="Tokens and cost">
+            <UsageBreakdown s={s} />
+          </Panel>
+
           <Panel title={s.activity.length ? `Activity · ${s.activity.filter((a) => a.status === "running").length ? "working now" : "last tool calls"}` : "Activity"}>
             <ActionList actions={s.activity} agents={s.agents} now={now} limit={12} filterable />
           </Panel>
@@ -389,16 +399,23 @@ export function SessionPage() {
           </Panel>
 
           {s.filesChanged.length ? (
-            <Panel title={`Files changed · ${s.filesChanged.length}`}>
-              <ul className="max-h-64 space-y-1 overflow-auto font-mono text-[12px]">
-                {s.filesChanged.map((f) => (
-                  <li key={f.path} className="flex gap-3 text-mist">
-                    <span className="w-16 shrink-0 text-fog">{f.status}</span>
-                    <span className="truncate">{f.path}</span>
-                    <span className="ml-auto shrink-0 text-teal-300">+{f.added}</span>
-                    <span className="shrink-0 text-rose-400">−{f.removed}</span>
-                  </li>
-                ))}
+            <Panel title={`Files changed · ${s.filesChanged.length}`} action={<span className="text-[12px] text-fog"><span className="text-teal-300">+{s.filesChanged.reduce((n, f) => n + f.added, 0)}</span> <span className="text-rose-400">−{s.filesChanged.reduce((n, f) => n + f.removed, 0)}</span> lines, uncommitted</span>}>
+              <ul className="max-h-72 space-y-1 overflow-auto font-mono text-[12px]">
+                {s.filesChanged.map((f) => {
+                  const max = Math.max(1, ...s.filesChanged.map((g) => g.added + g.removed));
+                  return (
+                    <li key={f.path} className="flex items-center gap-3 text-mist">
+                      <span className={`w-16 shrink-0 ${f.status === "deleted" ? "text-rose-400" : f.status === "added" || f.status === "untracked" ? "text-teal-300" : "text-fog"}`}>{f.status}</span>
+                      <span className="truncate" title={f.path}>{f.path}</span>
+                      <span className="ml-auto flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-slate-3" aria-hidden="true">
+                        <span className="bg-teal-400" style={{ width: `${(f.added / max) * 100}%` }} />
+                        <span className="bg-rose-400" style={{ width: `${(f.removed / max) * 100}%` }} />
+                      </span>
+                      <span className="w-12 shrink-0 text-right text-teal-300">+{f.added}</span>
+                      <span className="w-12 shrink-0 text-right text-rose-400">−{f.removed}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </Panel>
           ) : null}

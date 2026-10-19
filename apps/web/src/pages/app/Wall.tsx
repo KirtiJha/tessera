@@ -273,7 +273,7 @@ export function Wall() {
               label="Estimated cost today"
               short="Today"
               value={kpis ? fmtUsd(kpis.costTodayUsd) : "—"}
-              sub={budget ? `${Math.round(budget.pct)}% of ${fmtUsd(budget.limit, Number.isInteger(budget.limit) ? 0 : 2)} daily limit${budget.level === "hard" ? (budget.enforce ? " · over, calls denied" : " · over") : budget.level === "soft" ? " · over soft" : ""}` : kpis?.unpricedSessions ? `${kpis.unpricedSessions} session${kpis.unpricedSessions > 1 ? "s" : ""} with unpriced models` : "from tokens × your prices"}
+              sub={budget ? `${Math.round(budget.pct)}% of ${fmtUsd(budget.limit, Number.isInteger(budget.limit) ? 0 : 2)}/day${budget.level === "hard" ? (budget.enforce ? " · over, calls denied" : " · over") : budget.level === "soft" ? " · over soft" : ""}` : kpis?.unpricedSessions ? `${kpis.unpricedSessions} session${kpis.unpricedSessions > 1 ? "s" : ""} with unpriced models` : "from tokens × your prices"}
               subTone={budget?.level === "hard" ? "text-rose-400" : budget?.level === "soft" ? "text-amber-400" : "text-fog"}
               series={kpis?.costPerMinuteUsd}
               color="var(--color-amber-400)"

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Action, ActivityEvent, AgentReport, OpenAsk, SessionStatus, WaitReason } from "@tessera/contract";
+import type { Action, ActivityEvent, AgentReport, ChangedFile, OpenAsk, SessionStatus, WaitReason } from "@tessera/contract";
 import { SESSIONS_DIR, ensureDirs, log } from "./config.js";
 import { newCursor, type TranscriptCursor } from "./transcript.js";
 
@@ -27,6 +27,8 @@ export interface SessionState {
   outbox: ActivityEvent[];
   seq: number;
   git: { repo: string | null; branch: string | null; worktree: string | null; ahead: number; behind: number; modified: number } | null;
+  /** The working tree's changes against HEAD, refreshed with `git`. */
+  filesChanged?: ChangedFile[];
   gitCheckedAt: number;
   name: string | null;
   continuedFrom: string | null;

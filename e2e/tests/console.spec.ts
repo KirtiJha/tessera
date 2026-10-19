@@ -285,7 +285,7 @@ test("history filters and sorts from the URL, the audit log filters by action, a
   expect(b.ok()).toBeTruthy();
   // The wall's cost tile and Analytics both show spend against that budget.
   await page.goto("/app");
-  await expect(page.getByText(/of \$1,234\.50 daily limit/)).toBeVisible();
+  await expect(page.getByText(/of \$1,234\.50\/day/)).toBeVisible();
   await page.goto("/app/analytics");
   const outlook = page.locator("section", { has: page.getByRole("heading", { name: "Budgets" }) });
   await expect(outlook).toContainText("Whole organisation · daily");

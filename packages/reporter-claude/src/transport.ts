@@ -1,6 +1,6 @@
-import { clean, type Report, type ReportAck } from "@tessera/contract";
+import { clean, type ChangedFile, type Report, type ReportAck } from "@tessera/contract";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { HOME, VERSION, log, shortHostname, type Config } from "./config.js";
 import { contextFill, usageList } from "./transcript.js";
@@ -49,7 +49,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       ledgerCostUsd: null,
       blowouts: s.blowouts,
       git: s.git,
-      filesChanged: [],
+      filesChanged: s.filesChanged ?? [],
       plan: null,
       agents,
       openAsk: s.openAsk,
@@ -204,16 +204,68 @@ export async function sendReport(cfg: Config, snap: ReportSnapshot, timeoutMs: n
   return r.kind === "ok" ? { ack: r.body, filtered: true } : { ack: null, filtered: r.kind === "blocked" ? true : null };
 }
 
+function git(cwd: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf8", timeout: 1500, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 4 * 1024 * 1024 });
+  } catch {
+    return null;
+  }
+}
+
+const STATUS: Record<string, ChangedFile["status"]> = { "?": "untracked", A: "added", D: "deleted", R: "renamed", C: "added", M: "modified", T: "modified", U: "modified" };
+
+/** Lines in a small file, for an untracked file's "added" count; a big or unreadable one counts as 0 rather than being read. */
+function lineCount(path: string): number {
+  try {
+    if (statSync(path).size > 512 * 1024) return 0;
+    const text = readFileSync(path, "utf8");
+    return text ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * What the session has changed in its working tree, against HEAD: each file's
+ * status and lines added and removed (staged or not). Untracked files count
+ * their lines as added. The biggest changes come first; capped at 200 files.
+ */
+export function gitFiles(cwd: string | null): ChangedFile[] {
+  if (!cwd) return [];
+  const status = git(cwd, ["status", "--porcelain", "-z", "--untracked-files=all"]);
+  if (status === null) return [];
+  const numstat = new Map<string, { added: number; removed: number }>();
+  const ns = (git(cwd, ["diff", "--numstat", "-z", "HEAD"]) ?? "").split("\0");
+  for (let i = 0; i < ns.length; i++) {
+    const line = ns[i]!;
+    if (!line) continue;
+    const [a, r, p] = line.split("\t");
+    const added = a === "-" ? 0 : Number(a) || 0;
+    const removed = r === "-" ? 0 : Number(r) || 0;
+    // A rename prints "added\tremoved\t" then the old and new paths as two more fields.
+    const path = p || ns[(i += 2)] || "";
+    if (path) numstat.set(path, { added, removed });
+  }
+  const files: ChangedFile[] = [];
+  const entries = status.split("\0");
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]!;
+    if (e.length < 4) continue;
+    const x = e[0]!;
+    const y = e[1]!;
+    const path = e.slice(3);
+    if (x === "R" || x === "C") i++; // the original path follows
+    const st = STATUS[x === " " ? y : x] ?? "modified";
+    const n = numstat.get(path);
+    files.push({ path: clean(path, 400), status: st, added: n?.added ?? (st === "untracked" ? lineCount(join(cwd, path)) : 0), removed: n?.removed ?? 0 });
+  }
+  return files.sort((p, q) => q.added + q.removed - (p.added + p.removed)).slice(0, 200);
+}
+
 /** Git facts for the working directory, cheap enough to refresh every 10 s. */
 export function gitInfo(cwd: string | null): SessionState["git"] {
   if (!cwd) return null;
-  const run = (args: string[]) => {
-    try {
-      return execFileSync("git", args, { cwd, encoding: "utf8", timeout: 1500, stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch {
-      return null;
-    }
-  };
+  const run = (args: string[]) => git(cwd, args)?.trim() ?? null;
   const top = run(["rev-parse", "--show-toplevel"]);
   if (!top) return null;
   const branch = run(["rev-parse", "--abbrev-ref", "HEAD"]);

@@ -2,7 +2,7 @@ import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Qu
 import { log, type Config } from "./config.js";
 import { addEvent, deleteState, endAction, startAction, updateState, type AgentState, type SessionState } from "./state.js";
 import { advance, newCursor } from "./transcript.js";
-import { budget, buildReport, get, gitInfo, post, request, sendReport } from "./transport.js";
+import { budget, buildReport, get, gitFiles, gitInfo, post, request, sendReport } from "./transport.js";
 
 /** What Claude Code pipes to a hook on stdin. Fields differ by event; all are optional here. */
 export interface HookInput {
@@ -156,6 +156,7 @@ function refreshTranscripts(s: SessionState): void {
 function refreshGit(s: SessionState, force = false): void {
   if (!force && Date.now() - s.gitCheckedAt < 10_000) return;
   s.git = gitInfo(s.cwd);
+  s.filesChanged = s.git ? gitFiles(s.cwd) : [];
   s.gitCheckedAt = Date.now();
 }
 
