@@ -228,14 +228,14 @@ export function Analytics() {
             <Panel title="Waiting on people">
               {data.waits.byKind.length ? (
                 <>
-                  <table className="w-full text-[12.5px]">
+                  <div className="-mx-1 overflow-x-auto px-1"><table className="w-full min-w-[300px] text-[12.5px]">
                     <thead className="text-left text-[11px] text-fog"><tr><th className="pb-1.5 font-medium">Kind</th><th className="pb-1.5 text-right font-medium">Prompts</th><th className="pb-1.5 text-right font-medium">Median</th><th className="pb-1.5 text-right font-medium">p90</th><th className="pb-1.5 text-right font-medium">Longest</th></tr></thead>
                     <tbody className="divide-y divide-line">
                       {data.waits.byKind.map((w) => (
                         <tr key={w.kind}><td className="py-1.5 text-snow">{ASK_KIND[w.kind] ?? w.kind}{w.open ? <span className="text-amber-400"> · {w.open} open</span> : null}</td><td className="py-1.5 text-right text-mist">{w.count}</td><td className="py-1.5 text-right text-mist">{ms(w.p50Ms)}</td><td className="py-1.5 text-right text-mist">{ms(w.p90Ms)}</td><td className="py-1.5 text-right text-mist">{ms(w.maxMs)}</td></tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table></div>
                   {data.waits.answerers.length ? (
                     <div className="mt-3 border-t border-line pt-3">
                       <div className="text-[11px] font-medium text-ash">Who answers, and how fast</div>

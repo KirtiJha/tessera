@@ -167,6 +167,11 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   expect(r.ok()).toBeTruthy();
   // Like the reporter's keep-alive: a session waiting on a person keeps reporting, so a slow server cannot let it go silent mid-test.
   const keepalive = setInterval(() => void report(page.request, waiting).catch(() => {}), 10_000);
+  // A slow people list, as on a slow network: what is typed before it arrives must survive it.
+  await page.route("**/api/fleet/people", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue().catch(() => {}); // the test may already be past this request
+  });
   try {
   await page.goto("/app");
   const bell = page.getByRole("button", { name: /1 item needs attention/ });
@@ -204,6 +209,8 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await expect(page.getByPlaceholder(/Filter by name/)).toHaveValue("Erin Example");
   } finally {
     clearInterval(keepalive);
+    // Let a request still being delayed finish here, not in the next test.
+    await page.unrouteAll({ behavior: "wait" });
   }
 });
 
@@ -281,9 +288,10 @@ test("history filters and sorts from the URL, the audit log filters by action, a
   // Audit: only session actions, then everything again.
   await page.goto("/app/audit");
   await page.getByLabel("Filter by action").selectOption("session.");
-  await expect.poll(async () => page.locator("tbody tr").count()).toBeGreaterThan(0);
-  const actions = await page.locator("tbody tr td:nth-child(3)").allInnerTexts();
-  expect(actions.every((a) => a.startsWith("session."))).toBe(true);
+  // Wait for the filtered rows themselves: the unfiltered table is still on screen until the request returns.
+  const cells = page.locator("tbody tr td:nth-child(3)");
+  await expect.poll(async () => { const a = await cells.allInnerTexts(); return a.length > 0 && a.every((x) => x.startsWith("session.")); }).toBe(true);
+  const actions = await cells.allInnerTexts();
   await page.getByLabel("Filter by action").selectOption("");
   await expect.poll(async () => page.locator("tbody tr").count()).toBeGreaterThan(actions.length);
 
