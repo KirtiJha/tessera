@@ -119,12 +119,22 @@ export async function main(args: string[]): Promise<void> {
       let finalToken = token;
       if (!finalToken) {
         if (!code) throw new Error("give --code <enrolment code> from the Devices page, or --token <device token>");
-        const res = await fetch(`${server}/api/enrol/exchange`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ code, label, hostname: shortHostname() }),
-          signal: AbortSignal.timeout(10_000),
-        });
+        // A sleeping or redeploying server (Render's free plan) can take a minute to answer, so wait for it.
+        const slow = setTimeout(() => process.stdout.write(`Waiting for ${server} to answer; a server that was asleep can take up to a minute to wake...\n`), 5000);
+        let res: Response;
+        try {
+          res = await fetch(`${server}/api/enrol/exchange`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ code, label, hostname: shortHostname() }),
+            signal: AbortSignal.timeout(90_000),
+          });
+        } catch (e) {
+          if ((e as Error).name !== "TimeoutError") throw e;
+          throw new Error(`${server} did not answer the enrolment request within 90 seconds. Check the server is running, then run this again; if it then says the code has expired, get a new one from the Devices page.`);
+        } finally {
+          clearTimeout(slow);
+        }
         const body = (await res.json()) as { token?: string; error?: string; user?: string };
         if (!res.ok || !body.token) throw new Error(body.error ?? `enrolment failed (${res.status})`);
         finalToken = body.token;
