@@ -364,7 +364,7 @@ export function SessionPage() {
                   {s.git.modified ? <span className="text-mist">{s.git.modified} modified</span> : null}
                 </span>
               ) : null}
-              <span className="ml-2 whitespace-nowrap text-[12px] text-ash" title={`Reported by ${s.reporter.kind} ${s.reporter.version}`}>{s.reporter.kind === "claude-code-hooks" ? "reporter" : s.reporter.kind} {s.reporter.version}</span>
+              <span className="ml-2 whitespace-nowrap text-[12px] text-ash" title={`Reported by ${s.reporter.kind} ${s.reporter.version}${s.reporter.features.includes("mod") ? ", with the Tessera mod running in Claude Code" : ""}`}>{s.reporter.kind === "claude-code-hooks" ? "reporter" : s.reporter.kind} {s.reporter.version}{s.reporter.features.includes("mod") ? " · mod" : ""}</span>
             </div>
             <div className="mt-2 text-[13px] font-medium" style={{ color: k.color }}>
               {k.label}{kind === "stale" ? ` · last report ${ago(s.lastSeenAt, now)}` : ""}{kind === "done" && s.endReason ? ` · ${s.endReason}` : ""}
