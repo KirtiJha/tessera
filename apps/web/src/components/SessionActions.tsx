@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../lib/api";
+import { messageHint, useSessions } from "../lib/fleet";
 import { Button, Modal, Select, Textarea, useToast } from "./ui";
 
 export type SessionAction = { kind: "pause" | "resume" | "stop" | "message" | "handover"; id: string; label: string };
@@ -18,6 +19,7 @@ export function SessionActions({ action, onDone }: { action: SessionAction | nul
   const [people, setPeople] = useState<Person[]>([]);
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
+  const session = useSessions().find((x) => x.id === action?.id);
 
   useEffect(() => {
     if (action?.kind === "handover" && !people.length) void api.get<{ people: Person[] }>("/api/fleet/people").then((r) => setPeople(r.people)).catch(() => {});
@@ -62,7 +64,7 @@ export function SessionActions({ action, onDone }: { action: SessionAction | nul
         </div>
       </Modal>
       <Modal open={action.kind === "message"} onClose={onDone} title={`Message ${action.label}`}>
-        <p className="text-[13.5px] text-mist">Delivered the next time the session pauses, as an instruction to continue with.</p>
+        <p className="text-[13.5px] text-mist">{session ? messageHint(session) : "Delivered when the current turn ends, as an instruction to continue with."}</p>
         <Textarea className="mt-3" rows={4} autoFocus placeholder="For example: stop after the current task and push what you have." value={text} onChange={(e) => setText(e.target.value)} />
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={onDone}>Cancel</Button>

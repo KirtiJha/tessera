@@ -71,6 +71,39 @@ describe.skipIf(!reachable)("away mode, hand-off, push, explicit allows and sugg
     expect(audit.rowCount).toBe(1);
   });
 
+  it("lets the terminal set away mode with the device token, and whoami reads it back", async () => {
+    const dev = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const put = await app.inject({ method: "PUT", url: "/api/ingest/presence", headers: dev, payload: { presence: "desk" } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toEqual({ presence: "desk" });
+    expect((await app.inject({ method: "GET", url: "/api/ingest/whoami", headers: dev })).json()).toMatchObject({ user: "Ann", device: "ann-mbp", presence: "desk" });
+    expect((await app.inject({ method: "PUT", url: "/api/ingest/presence", headers: dev, payload: { presence: "asleep" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: "/api/ingest/presence", headers: { "content-type": "application/json" }, payload: { presence: "away" } })).statusCode).toBe(401);
+    const audit = await pool.query<{ detail: { via: string } }>("SELECT detail FROM audit_log WHERE org_id = $1 AND action = 'user.presence' ORDER BY created_at DESC LIMIT 1", [orgId]);
+    expect(audit.rows[0]!.detail.via).toBe("terminal");
+    await prefs({ presence: "auto" });
+  });
+
+  it("hands the mod only messages, and leaves an answer queued for the hook waiting on it", async () => {
+    const sid = `p-${sfx}-mod`;
+    const dev = { authorization: `Bearer ${token}` };
+    await report(sid, { status: "waiting", waitReason: "permission", openAsk: { id: "am", kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "Bash(x)" } });
+    expect((await app.inject({ method: "POST", url: `/api/fleet/sessions/${sid}/message`, headers: { ...H, cookie }, payload: { text: "push what you have" } })).statusCode).toBe(200);
+    expect((await answer(sid, "am")).statusCode).toBe(200);
+    const mod = await app.inject({ method: "GET", url: `/api/ingest/sessions/${sid}/deliveries?wait=0&kinds=message`, headers: dev });
+    expect(mod.json().deliveries.map((d: { kind: string }) => d.kind)).toEqual(["message"]);
+    const hook = await app.inject({ method: "GET", url: `/api/ingest/sessions/${sid}/deliveries?wait=0`, headers: dev });
+    expect(hook.json().deliveries.map((d: { kind: string; askId: string }) => [d.kind, d.askId])).toEqual([["answer", "am"]]);
+    expect((await app.inject({ method: "GET", url: `/api/ingest/sessions/${sid}/deliveries?kinds=gossip`, headers: dev })).statusCode).toBe(400);
+  });
+
+  it("shows which sessions run the mod", async () => {
+    const sid = `p-${sfx}-feat`;
+    await app.inject({ method: "POST", url: "/api/ingest/report", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, payload: { ...base, reporter: { ...base.reporter, features: ["mod"] }, sentAt: new Date().toISOString(), session: { id: sid, startedAt: new Date().toISOString(), status: "waiting", waitReason: "idle" }, events: [] } });
+    const view = await app.inject({ method: "GET", url: `/api/fleet/sessions/${sid}`, headers: { ...H, cookie } });
+    expect(view.json().session?.reporter ?? view.json().reporter).toMatchObject({ features: ["mod"] });
+  });
+
   it("refuses an answer once the prompt has moved to the terminal, and says where it is", async () => {
     const sid = `p-${sfx}-2`;
     await report(sid, { status: "waiting", waitReason: "permission", openAsk: { id: "a1", kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "Bash(x)", inTerminal: true } });

@@ -6,7 +6,7 @@ const base = {
   ownerId: "u1",
   ownerName: "Erin",
   machine: null,
-  reporter: { kind: "claude-code-hooks", version: "0.1.0" },
+  reporter: { kind: "claude-code-hooks", version: "0.1.0", features: [] },
   cwd: "/work/payments",
   model: "claude-sonnet-4-5",
   effort: null,

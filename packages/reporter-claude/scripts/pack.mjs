@@ -4,8 +4,8 @@
 // from their own server: no npm registry, and always the matching version.
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,6 +16,26 @@ const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
 rmSync(out, { recursive: true, force: true });
 mkdirSync(pkgDir, { recursive: true });
 
+// The Tessera mod rides inside the reporter: install writes it out beside the hooks.
+const modRoot = join(root, "..", "mod-claude", "plugin");
+const modFiles = {};
+(function walk(dir) {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const rel = relative(modRoot, p).split("\\").join("/");
+    if (rel === "tests" || rel === ".claude-plugin/types" || rel === "tsconfig.json") continue;
+    if (statSync(p).isDirectory()) walk(p);
+    else modFiles[rel] = readFileSync(p, "utf8");
+  }
+})(modRoot);
+if (!modFiles["hooks/register.js"]) throw new Error(`the mod is missing from ${modRoot}`);
+const embedMod = {
+  name: "embed-mod",
+  setup(b) {
+    b.onLoad({ filter: /[\\/]src[\\/]modfiles\.ts$/ }, () => ({ contents: `export const EMBEDDED_MOD = ${JSON.stringify(modFiles)};`, loader: "ts" }));
+  },
+};
+
 await build({
   entryPoints: [join(root, "src/entry.ts")],
   outfile: join(pkgDir, "tessera-reporter.mjs"),
@@ -25,6 +45,7 @@ await build({
   target: "node20",
   banner: { js: "#!/usr/bin/env node" },
   legalComments: "none",
+  plugins: [embedMod],
 });
 
 writeFileSync(

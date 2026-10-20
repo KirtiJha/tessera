@@ -105,7 +105,7 @@ export function Landing() {
             <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Answer it where you are.</h2>
             <p className="mt-4 text-[17px] leading-relaxed text-ash">A session that waits is a session that costs. Tessera brings the prompt to you: allow or deny a tool, approve a plan, send a message, pause a runaway. From the console, or from the Slack message that told you.</p>
             <ul className="mt-6 space-y-3 text-[15px] text-ink">
-              {["Allow, Deny and Approve buttons on the Slack message itself, answered as the person who pressed.", "Stop a runaway turn, pause a session, or hand it to a colleague before you step away.", "Only the session's owner, their team's approvers or an admin can act, and every action is logged.", "Tessera never opens a connection to an engineer's machine. The reporter pulls, always."].map((t) => (
+              {["Allow, Deny and Approve buttons on the Slack message itself, answered as the person who pressed.", "Stop a runaway turn, pause a session, or hand it to a colleague before you step away.", "A message from the console reaches a session idle at its prompt at once, and /tessera away in the terminal holds prompts for your phone.", "Only the session's owner, their team's approvers or an admin can act, and every action is logged.", "Tessera never opens a connection to an engineer's machine. The reporter pulls, always."].map((t) => (
                 <li key={t} className="flex gap-3">
                   <span className="mt-[7px] h-2 w-2 shrink-0 rounded-[3px] bg-teal-600" />
                   <span>{t}</span>
@@ -141,7 +141,7 @@ export function Landing() {
           <div className="grid gap-4 sm:grid-cols-2">
             {[
               ["Single sign-on and SCIM", "Okta, Entra ID or Google through OpenID Connect, with verified domains. Your provider creates people and switches them off when they leave."],
-              ["Any agent runtime", "Claude Code through its hooks; Codex, Gemini and SDK agents through OpenTelemetry traces. One wall."],
+              ["Any agent runtime", "Claude Code through its hooks and the Tessera mod; Codex, Gemini and SDK agents through OpenTelemetry traces. One wall."],
               ["Data you decide to keep", "Metadata-only mode, PII removal, retention per organisation, legal hold, export and erasure for a person's data."],
               ["Hash-chained audit, streamed", "Every action in an append-only log you can verify in one click and stream to Splunk or Datadog."],
               ["API keys and a CLI", "Scoped keys that act as their maker. Watch, answer and apply policy as code from a terminal or CI."],
@@ -164,7 +164,7 @@ export function Landing() {
             {[
               { n: "1", t: "Run the server", c: "docker compose up -d\n# or: pnpm start, with DATABASE_URL set", d: "Postgres is the only requirement. Redis is optional, for more than one replica." },
               { n: "2", t: "Enrol a machine", c: "TESSERA=https://tessera.example.com\nnpx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter enrol --server $TESSERA --code XXXX-XXXX", d: "Your server hands out the reporter itself. The one-time code comes from Devices in the console, which shows this command with your address filled in." },
-              { n: "3", t: "Install the hooks", c: "npx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter install", d: "Adds the hooks to ~/.claude/settings.json and keeps the rest of it. Your next Claude Code session appears on the wall." },
+              { n: "3", t: "Install the hooks", c: "npx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter install", d: "Adds the hooks to ~/.claude/settings.json and keeps the rest of it, plus the Tessera mod on Claude Code 2.1.287 or later. Your next Claude Code session appears on the wall." },
             ].map((s) => (
               <div key={s.n} className="rounded-2xl border border-line bg-slate-1 p-6">
                 <div className="flex items-center gap-3">

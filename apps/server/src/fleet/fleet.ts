@@ -17,6 +17,8 @@ import * as store from "./store.js";
 import type { StreamHub } from "./stream.js";
 import type { SessionRecord } from "./types.js";
 
+export type DeliveryKind = ReportAck["deliveries"][number]["kind"];
+
 const STREAM_FLUSH_MS = 500;
 const SAMPLE_FLUSH_MS = 5000;
 const DEVICE_TOUCH_MS = 30_000;
@@ -294,6 +296,7 @@ export class Fleet {
       name: s.name,
       reporterKind: report.reporter.kind,
       reporterVersion: report.reporter.version,
+      reporterFeatures: report.reporter.features,
       hostname: report.machine.hostname,
       machineId: report.machine.machineId,
       cwd: s.cwd,
@@ -608,22 +611,26 @@ export class Fleet {
 
   // ---- deliveries ------------------------------------------------------
 
-  private async takeDeliveries(orgId: string, sessionId: string): Promise<ReportAck["deliveries"]> {
-    const r = await pool.query<{ id: string; kind: "answer" | "message" | "command"; ask_id: string | null; payload: Record<string, unknown> }>(
+  private async takeDeliveries(orgId: string, sessionId: string, kinds: DeliveryKind[] | null): Promise<ReportAck["deliveries"]> {
+    const r = await pool.query<{ id: string; kind: DeliveryKind; ask_id: string | null; payload: Record<string, unknown> }>(
       `UPDATE deliveries SET delivered_at = now() WHERE id IN (
-         SELECT id FROM deliveries WHERE org_id = $1 AND session_id = $2 AND delivered_at IS NULL ORDER BY created_at ASC LIMIT 20)
+         SELECT id FROM deliveries WHERE org_id = $1 AND session_id = $2 AND delivered_at IS NULL AND ($3::text[] IS NULL OR kind = ANY($3::text[]))
+         ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED)
        RETURNING id, kind, ask_id, payload`,
-      [orgId, sessionId],
+      [orgId, sessionId, kinds],
     );
     return r.rows.map((d) => ({ id: d.id, kind: d.kind, askId: d.ask_id, payload: d.payload }));
   }
 
-  /** Deliveries the reporter can pull while it waits on a permission prompt. */
-  async pendingDeliveries(orgId: string, sessionId: string): Promise<ReportAck["deliveries"]> {
-    return this.takeDeliveries(orgId, sessionId);
+  /**
+   * Deliveries the reporter can pull while it waits on a prompt. The mod asks
+   * for messages only, so it never takes an answer a waiting hook needs.
+   */
+  async pendingDeliveries(orgId: string, sessionId: string, kinds: DeliveryKind[] | null = null): Promise<ReportAck["deliveries"]> {
+    return this.takeDeliveries(orgId, sessionId, kinds);
   }
 
-  async queueDelivery(orgId: string, sessionId: string, kind: "answer" | "message" | "command", askId: string | null, payload: Record<string, unknown>, userId: string): Promise<string> {
+  async queueDelivery(orgId: string, sessionId: string, kind: DeliveryKind, askId: string | null, payload: Record<string, unknown>, userId: string): Promise<string> {
     const r = await pool.query<{ id: string }>(
       "INSERT INTO deliveries (org_id, session_id, kind, ask_id, payload, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
       [orgId, sessionId, kind, askId, JSON.stringify(payload), userId],

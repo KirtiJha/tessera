@@ -226,7 +226,7 @@ export class OtlpSession {
       v: 1,
       claimDeliveries: true,
       sentAt: new Date().toISOString(),
-      reporter: { kind: this.kind, version: this.version, schema: "1.0" },
+      reporter: { kind: this.kind, version: this.version, schema: "1.0", features: [] },
       machine: { hostname: clean(this.hostname, 120), machineId: clean(this.machineId, 64) },
       session: {
         id: this.id,

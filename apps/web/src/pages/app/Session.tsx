@@ -15,7 +15,7 @@ import { UsageBreakdown } from "../../components/UsageBreakdown";
 import { Button, Modal, Panel, Select, Spinner, Textarea, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useMedia } from "../../lib/useMedia";
-import { sessionKind, sessionLabel, useFleet } from "../../lib/fleet";
+import { messageHint, sessionKind, sessionLabel, useFleet } from "../../lib/fleet";
 import { ago, fmtDate, fmtDuration, fmtTokens, fmtUsd, modelShort } from "../../lib/format";
 
 interface Detail {
@@ -243,7 +243,8 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
 
       <div>
         <div className="mb-1.5 text-[12px] font-medium text-mist">Send a message</div>
-        <Textarea rows={3} placeholder="Delivered the next time the session pauses, as an instruction to continue with." value={message} onChange={(e) => setMessage(e.target.value)} />
+        <Textarea rows={3} aria-label="Message" placeholder="For example: stop after the current task and push what you have." value={message} onChange={(e) => setMessage(e.target.value)} />
+        <p className="mt-1.5 text-[12px] text-fog">{messageHint(s)}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={!message.trim()} loading={busy === "message"} onClick={() => act("message", () => api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/message`, { text: message }).then(() => setMessage("")), "Message queued for the session.")}><Send size={14} /> Send</Button>
           <Button size="sm" disabled={s.stopRequested || s.status !== "running"} title={s.status !== "running" ? "Stop applies while the session is working" : undefined} loading={busy === "stop"} onClick={() => setStopOpen(true)}><OctagonX size={14} /> {s.stopRequested ? "Stopping…" : "Stop"}</Button>

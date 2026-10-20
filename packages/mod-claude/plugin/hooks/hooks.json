@@ -1,0 +1,4 @@
+{
+  "description": "The Tessera mod. Works beside the Tessera reporter's settings hooks, which still report every event.",
+  "modules": ["./register.js"]
+}

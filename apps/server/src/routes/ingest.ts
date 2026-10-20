@@ -1,8 +1,10 @@
-import { DecideRequest, parseReport } from "@tessera/contract";
+import { DecideRequest, parseReport, Presence } from "@tessera/contract";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { sha256 } from "../auth/crypto.js";
 import { z } from "zod";
 import { deviceFromRequest } from "../auth/devices.js";
+import { audit } from "../audit.js";
+import { prefsFor, savePrefs } from "../notify/personal.js";
 import type { Fleet } from "../fleet/fleet.js";
 import { metrics } from "../metrics.js";
 import { foldTraces, OtlpSession, type OtlpTraces } from "../fleet/otlp.js";
@@ -145,15 +147,19 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
     return fleet.decide(device, body);
   });
 
-  /** Long-poll for deliveries while the reporter waits on a prompt. */
+  /**
+   * Long-poll for deliveries while the reporter waits on a prompt. `kinds`
+   * (comma separated) claims only those kinds and leaves the rest queued.
+   */
   app.get("/sessions/:id/deliveries", { config: perDevice(600) }, async (req) => {
     const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
     const { id } = req.params as { id: string };
-    const waitMs = Math.min(25_000, Math.max(0, Number((req.query as { wait?: string }).wait ?? 0) * 1000));
-    const deadline = Date.now() + waitMs;
+    const q = z.object({ wait: z.coerce.number().min(0).max(25).default(0), kinds: z.string().max(60).optional() }).parse(req.query);
+    const kinds = q.kinds ? z.array(z.enum(["answer", "message", "command"])).min(1).parse(q.kinds.split(",")) : null;
+    const deadline = Date.now() + q.wait * 1000;
     if (!(await fleet.ownedBy(device, id))) return { deliveries: [], serverTime: new Date().toISOString() };
     for (;;) {
-      const d = await fleet.pendingDeliveries(device.orgId, id);
+      const d = await fleet.pendingDeliveries(device.orgId, id, kinds);
       if (d.length || Date.now() >= deadline) return { deliveries: d, serverTime: new Date().toISOString() };
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -169,6 +175,19 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
 
   app.get("/whoami", { config: perDevice(60) }, async (req) => {
     const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
-    return { device: device.label, user: device.userName, liveSessions: fleet.liveCount(device.orgId) };
+    const prefs = await prefsFor(device.userId);
+    return { device: device.label, user: device.userName, liveSessions: fleet.liveCount(device.orgId), presence: prefs.presence };
+  });
+
+  /** Away mode from the terminal (the mod's /tessera away): the same setting as the console's, for the device's person. */
+  app.put("/presence", { config: perDevice(60) }, async (req) => {
+    const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
+    const body = z.object({ presence: Presence }).parse(req.body);
+    const before = await prefsFor(device.userId);
+    const prefs = await savePrefs(device.userId, { presence: body.presence });
+    if (body.presence !== before.presence) {
+      await audit({ orgId: device.orgId, actorId: device.userId, actorName: device.userName, action: "user.presence", targetType: "user", targetId: device.userId, detail: { from: before.presence, to: body.presence, via: "terminal", device: device.label }, ip: req.ip });
+    }
+    return { presence: prefs.presence };
   });
 }

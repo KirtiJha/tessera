@@ -12,3 +12,7 @@ coverage/
 release/
 e2e/test-results/
 e2e/report/
+
+# Type files Claude Code writes beside a mod it loads with --plugin-dir
+packages/mod-claude/plugin/.claude-plugin/types/
+packages/mod-claude/plugin/tsconfig.json

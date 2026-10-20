@@ -37,7 +37,7 @@ export function deriveSession(rec: SessionRecord, table: ModelPrice[], now: numb
     ownerId: rec.ownerId,
     ownerName: rec.ownerName,
     machine: rec.hostname && rec.machineId ? { hostname: rec.hostname, machineId: rec.machineId } : null,
-    reporter: { kind: rec.reporterKind, version: rec.reporterVersion },
+    reporter: { kind: rec.reporterKind, version: rec.reporterVersion, features: rec.reporterFeatures ?? [] },
     cwd: rec.cwd,
     model: rec.model,
     effort: rec.effort,

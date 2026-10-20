@@ -1,0 +1,11 @@
+{
+  "name": "@tessera/mod-claude",
+  "version": "0.1.0",
+  "description": "The Tessera mod for Claude Code 2.1.287 and later. Installed by tessera-reporter install beside the hooks.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "lint": "echo ok"
+  }
+}

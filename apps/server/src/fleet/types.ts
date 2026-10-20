@@ -11,6 +11,8 @@ export interface SessionRecord {
   name: string | null;
   reporterKind: string;
   reporterVersion: string;
+  /** From the latest report only; not stored, so a record loaded from the database has none until the next report. */
+  reporterFeatures?: string[];
   hostname: string | null;
   machineId: string | null;
   cwd: string | null;

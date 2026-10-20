@@ -9,6 +9,18 @@ export interface AgentState extends AgentReport {
   cursor: TranscriptCursor;
 }
 
+export interface InboxItem {
+  id: string;
+  kind: "answer" | "message" | "command";
+  askId: string | null;
+  payload: Record<string, unknown>;
+  /** When this machine claimed it, ms. */
+  at: number;
+}
+
+/** An unclaimed delivery older than this is for a prompt or a turn that has moved on. */
+export const INBOX_TTL_MS = 60 * 60_000;
+
 export interface SessionState {
   id: string;
   startedAt: string;
@@ -37,6 +49,12 @@ export interface SessionState {
   lastReportAt: number;
   /** Delivery ids already acted on, so a retried delivery is not applied twice. */
   seenDeliveries: string[];
+  /**
+   * Deliveries claimed by a report but not acted on yet. Any hook's report can
+   * claim them, and only the hook they are for (the prompt waiting on an answer,
+   * Stop for a message) can act, so they wait here for it.
+   */
+  inbox?: InboxItem[];
   /** Agent ids currently running, in start order (the last is the likely owner of a tool call). */
   runningAgents: string[];
   /** The most recent tool calls, newest last, so the wall can show what is happening now. */
@@ -209,4 +227,18 @@ export function addEvent(s: SessionState, kind: ActivityEvent["kind"], text: str
   s.seq++;
   s.outbox.push({ id: `${s.seq}-${Date.now().toString(36)}`, ts: new Date().toISOString(), kind, agentId, text: text.slice(0, 500), ...(data ? { data } : {}) });
   if (s.outbox.length > 500) s.outbox.splice(0, s.outbox.length - 500);
+}
+
+/** Keep deliveries a report claimed until the hook they are for takes them. */
+export function stash(s: SessionState, items: Omit<InboxItem, "at">[], now = Date.now()): void {
+  const inbox = (s.inbox ?? []).filter((d) => now - d.at < INBOX_TTL_MS);
+  for (const d of items) if (!inbox.some((x) => x.id === d.id)) inbox.push({ ...d, at: now });
+  s.inbox = inbox.slice(-50);
+}
+
+/** Take the oldest stashed delivery that matches, removing it. */
+export function takeInbox(s: SessionState, match: (d: InboxItem) => boolean): InboxItem | undefined {
+  const i = (s.inbox ?? []).findIndex(match);
+  if (i < 0) return undefined;
+  return s.inbox!.splice(i, 1)[0];
 }

@@ -150,7 +150,7 @@ class SimSession {
       v: 1,
       claimDeliveries: true,
       sentAt: new Date(sentAt).toISOString(),
-      reporter: { kind: "custom", version: "0.1.0", schema: "1.0" },
+      reporter: { kind: "custom", version: "0.1.0", schema: "1.0", features: [] },
       machine: { hostname: `lg-host-${Math.floor(this.n / PER_MACHINE)}`, machineId: `lg${Math.floor(this.n / PER_MACHINE)}` },
       session: {
         id: this.id,

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { HOME, VERSION, log, shortHostname, type Config } from "./config.js";
+import { readLive } from "./live.js";
 import { contextFill, usageList } from "./transcript.js";
 import type { SessionState } from "./state.js";
 
@@ -27,11 +28,19 @@ export function buildReport(cfg: Config, s: SessionState): Report {
     promptExcerpt: cfg.excerpts ? a.promptExcerpt : null,
     answerExcerpt: cfg.excerpts ? (a.cursor.lastAssistantText ? clean(a.cursor.lastAssistantText, 400) : a.answerExcerpt) : null,
   }));
+  // With the mod running, Claude Code's own figures replace what the transcript implies.
+  const live = readLive(s.id);
+  const transcriptContext = contextFill(s.cursor);
+  const context = live?.context
+    ? live.context.tokens
+      ? { used: live.context.tokens, window: live.context.window }
+      : transcriptContext && { ...transcriptContext, window: live.context.window }
+    : transcriptContext;
   return {
     v: 1,
     claimDeliveries: true,
     sentAt: new Date().toISOString(),
-    reporter: { kind: "claude-code-hooks", version: VERSION, schema: "1.0" },
+    reporter: { kind: "claude-code-hooks", version: VERSION, schema: "1.0", features: live ? ["mod"] : [] },
     machine: { hostname: shortHostname(), machineId: cfg.machineId },
     session: {
       id: s.id,
@@ -44,10 +53,10 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       startedAt: s.startedAt,
       endedAt: s.endedAt,
       endReason: s.endReason,
-      context: contextFill(s.cursor),
+      context,
       tokens: s.cursor.tokens,
       usageByModel: usageList(s.cursor),
-      ledgerCostUsd: null,
+      ledgerCostUsd: live?.costUsd ?? null,
       blowouts: s.blowouts,
       git: s.git,
       filesChanged: s.filesChanged ?? [],

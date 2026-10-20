@@ -23,7 +23,8 @@ export interface SessionView {
   ownerId: string | null;
   ownerName: string | null;
   machine: { hostname: string; machineId: string } | null;
-  reporter: { kind: string; version: string };
+  /** `features` lists what the reporter can do beyond the hooks, such as "mod". */
+  reporter: { kind: string; version: string; features: string[] };
   cwd: string | null;
   model: string | null;
   effort: string | null;

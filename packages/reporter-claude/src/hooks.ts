@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Question, type ReportAck, type SuggestedRule } from "@tessera/contract";
 import { log, type Config } from "./config.js";
-import { addEvent, deleteState, endAction, startAction, updateState, type AgentState, type SessionState } from "./state.js";
+import { addEvent, deleteState, endAction, stash, startAction, takeInbox, updateState, type AgentState, type SessionState } from "./state.js";
+import { deleteLive } from "./live.js";
 import { advance, newCursor } from "./transcript.js";
 import { budget, buildReport, get, gitFiles, gitInfo, post, request, sendReport } from "./transport.js";
 
@@ -165,13 +166,25 @@ function currentAgentId(s: SessionState): string | null {
   return s.runningAgents.at(-1) ?? null;
 }
 
-/** Deliveries not acted on yet, remembered so a retried delivery is never applied twice. */
-function takeFresh(s: SessionState, deliveries: Delivery[]): Delivery[] {
+/**
+ * Deliveries not seen before go to the inbox, remembered so a retried delivery
+ * is never applied twice. Whichever hook's report claimed them, the hook they
+ * are for takes them from there.
+ */
+export function takeFresh(s: SessionState, deliveries: Delivery[]): Delivery[] {
   const fresh = deliveries.filter((d) => !s.seenDeliveries.includes(d.id));
   for (const d of fresh) s.seenDeliveries.push(d.id);
   if (s.seenDeliveries.length > 200) s.seenDeliveries.splice(0, s.seenDeliveries.length - 200);
+  stash(s, fresh);
   return fresh;
 }
+
+function answerFor(s: SessionState, askId: string): Delivery | undefined {
+  return takeInbox(s, (d) => d.kind === "answer" && d.askId === askId);
+}
+
+/** The prompt the mod submits for a message sent from the console. */
+const FROM_TESSERA = /^Message from .{1,200} via Tessera: /;
 
 const FILTER_NOTE = "Some detail is withheld: a web filter on this network blocks it. The session, its state, cost and timing still show.";
 
@@ -226,7 +239,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * the console arrive after the terminal has already asked.
  */
 async function waitForAnswer(cfg: Config, sid: string, txn: Txn, askId: string, kind: "permission" | "question"): Promise<Delivery | undefined> {
-  const found = (list: Delivery[]) => list.find((d) => d.kind === "answer" && d.askId === askId);
+  const found = () => txn((s) => answerFor(s, askId));
   const start = Date.now();
   // Tell the console how long it has, so it can count down and stop offering buttons after.
   const until = (presence: SessionState["presence"]) => {
@@ -239,11 +252,14 @@ async function waitForAnswer(cfg: Config, sid: string, txn: Txn, askId: string, 
   const cached = txn((s) => s.presence);
   let seconds = until(cached);
   const first = await report(cfg, txn, budget(4000, 10_000));
-  let answer = found(first.fresh);
+  let answer = found();
   // The person may have switched to away (or back) since this machine last heard: the server's word wins.
   if (first.ack?.presence && first.ack.presence !== cached) {
     seconds = until(first.ack.presence);
-    if (!answer) answer = found((await report(cfg, txn, budget(3000, 8000))).fresh);
+    if (!answer) {
+      await report(cfg, txn, budget(3000, 8000));
+      answer = found();
+    }
   }
   const deadline = start + seconds * 1000;
   while (!answer && Date.now() < deadline) {
@@ -253,7 +269,8 @@ async function waitForAnswer(cfg: Config, sid: string, txn: Txn, askId: string, 
       await sleep(1000);
       continue;
     }
-    answer = found(txn((s) => takeFresh(s, r.deliveries)));
+    txn((s) => takeFresh(s, r.deliveries));
+    answer = found();
   }
   if (!answer) {
     // The terminal shows its own dialog now, and nothing outside it can answer that. Say so on the wall at once.
@@ -416,7 +433,8 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           s.status = "running";
           s.waitReason = null;
           s.openAsk = null;
-          if (!s.name && input.prompt) s.name = clean(input.prompt.split("\n")[0] ?? "", 80) || null;
+          // A message from Tessera, delivered by the mod as a prompt, is not what the session is about.
+          if (!s.name && input.prompt && !FROM_TESSERA.test(input.prompt)) s.name = clean(input.prompt.split("\n")[0] ?? "", 80) || null;
           addEvent(s, "turn.start", `prompt: ${clean(input.prompt ?? "", 120)}`);
         });
         break;
@@ -621,9 +639,10 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           addEvent(s, "turn.end", "turn ended");
         });
         if (cfg) {
-          const { fresh } = await report(cfg, txn, budget(3000, 8000));
-          const msg = fresh.find((d) => d.kind === "message");
-          if (msg && !input.stop_hook_active) {
+          await report(cfg, txn, budget(3000, 8000));
+          // A message claimed by any report in this turn waits in the inbox for the turn's end.
+          const msg = input.stop_hook_active ? undefined : txn((s) => takeInbox(s, (d) => d.kind === "message"));
+          if (msg) {
             const p = msg.payload as { text?: string; by?: string };
             txn((s) => {
               addEvent(s, "answer", `message from ${p.by ?? "Tessera"} delivered`);
@@ -659,6 +678,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           if (cfg) await report(cfg, txn, budget(1200, 3000));
         } finally {
           deleteState(sid);
+          deleteLive(sid);
         }
         return { output: undefined, exitCode: 0 };
       }

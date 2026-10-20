@@ -156,6 +156,8 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15)
 
+  packages/mod-claude: {}
+
   packages/reporter-claude:
     dependencies:
       '@tessera/contract':

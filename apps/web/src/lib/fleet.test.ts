@@ -1,6 +1,6 @@
 import type { SessionView } from "@tessera/contract";
 import { describe, expect, it } from "vitest";
-import { sessionKind, sessionLabel } from "./fleet";
+import { messageHint, sessionKind, sessionLabel } from "./fleet";
 import { fmtDuration, fmtTokens, fmtUsd, modelShort } from "./format";
 
 const base: SessionView = {
@@ -11,7 +11,7 @@ const base: SessionView = {
   ownerId: "u",
   ownerName: "Priya",
   machine: null,
-  reporter: { kind: "claude-code-hooks", version: "0.1.0" },
+  reporter: { kind: "claude-code-hooks", version: "0.1.0", features: [] },
   cwd: "/Users/priya/dev/payments-api",
   model: "claude-sonnet-4-5",
   effort: null,
@@ -52,6 +52,20 @@ describe("sessionKind", () => {
     expect(sessionLabel({ ...base, git: { repo: "acme/api", branch: null, worktree: null, ahead: 0, behind: 0, modified: 0 } })).toBe("acme/api");
     expect(sessionLabel({ ...base, name: "Fix refunds" })).toBe("Fix refunds");
     expect(sessionLabel({ ...base, cwd: null })).toBe("abcdef12");
+  });
+});
+
+describe("messageHint", () => {
+  const idle = { ...base, status: "waiting" as const, waitReason: "idle" as const };
+  it("says an idle session with the mod gets a message at once", () => {
+    expect(messageHint({ ...idle, reporter: { ...base.reporter, features: ["mod"] } })).toMatch(/^Delivered at once/);
+  });
+  it("says an idle session without the mod waits for its next turn, and why", () => {
+    expect(messageHint(idle)).toMatch(/next turn ends.*without the Tessera mod/);
+  });
+  it("says a working session gets it when the turn ends, mod or not", () => {
+    expect(messageHint(base)).toMatch(/^Delivered when the current turn ends/);
+    expect(messageHint({ ...base, reporter: { ...base.reporter, features: ["mod"] } })).toMatch(/^Delivered when the current turn ends/);
   });
 });
 

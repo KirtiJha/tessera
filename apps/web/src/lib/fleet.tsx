@@ -121,6 +121,19 @@ export function sessionKind(s: SessionView): SessionKind {
   return "running";
 }
 
+/**
+ * When a message sent now reaches the session. The Tessera mod delivers to a
+ * session idle at the prompt at once; hooks alone deliver only when a turn
+ * ends, so an idle session without the mod waits for its next turn.
+ */
+export function messageHint(s: Pick<SessionView, "reporter" | "status" | "waitReason">): string {
+  const mod = (s.reporter.features ?? []).includes("mod");
+  const idle = s.status === "waiting" && s.waitReason === "idle";
+  if (idle && mod) return "Delivered at once: the session is idle and runs the Tessera mod, so it starts on your message.";
+  if (idle) return "Delivered when the session's next turn ends. It is idle at the prompt, and without the Tessera mod (Claude Code 2.1.287 or later) nothing reaches it until it works again.";
+  return "Delivered when the current turn ends, as an instruction to continue with.";
+}
+
 export function sessionLabel(s: SessionView): string {
   return s.name ?? s.git?.repo ?? (s.cwd ? s.cwd.split("/").filter(Boolean).pop() ?? s.id : s.id.slice(0, 8));
 }

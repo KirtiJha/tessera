@@ -1,0 +1,7 @@
+{
+  "name": "tessera",
+  "version": "0.1.0",
+  "description": "Tessera inside Claude Code: messages from the Tessera console reach this session even while it is idle, /tessera sets away mode from the terminal, and the reporter gets Claude Code's own context figures.",
+  "author": { "name": "Tessera" },
+  "license": "Apache-2.0"
+}

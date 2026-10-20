@@ -266,6 +266,12 @@ export const ReporterInfo = z.object({
   kind: z.enum(["claude-code-hooks", "claude-code-plugin", "codex-cli", "gemini-cli", "cursor", "custom"]),
   version: short(40),
   schema: z.literal(SCHEMA_VERSION).default(SCHEMA_VERSION),
+  /**
+   * What this reporter can do beyond the hooks. "mod": the Tessera mod runs
+   * inside Claude Code, so a message reaches an idle session at once and the
+   * context numbers are Claude Code's own.
+   */
+  features: z.array(short(40)).max(20).default([]),
 });
 export type ReporterInfo = z.infer<typeof ReporterInfo>;
 

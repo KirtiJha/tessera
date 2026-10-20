@@ -27,6 +27,8 @@ export const LOG_PATH = join(HOME, "reporter.log");
 
 export function ensureDirs(): void {
   mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
+  // Where the mod writes Claude Code's own figures for each session (live.ts).
+  mkdirSync(join(HOME, "live"), { recursive: true, mode: 0o700 });
 }
 
 export function loadConfig(): Config | null {
