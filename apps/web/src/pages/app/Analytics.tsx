@@ -2,7 +2,7 @@ import { Download } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarList, ColumnChart } from "../../components/ColumnChart";
 import { Heatmap } from "../../components/Heatmap";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button, Empty, Field, Input, Panel, Select, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { budgetOutlook, useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
@@ -13,7 +13,7 @@ interface Data {
   range: { from: string; to: string; days: number; groupBy: string };
   totals: { costUsd: number; prevCostUsd: number; tokens: number; sessions: number; people: number; agents: number; failedAgents: number; blowouts: number; asks: number; answeredInTessera: number; answeredInSlack: number; meanWaitMs: number | null };
   daily: { day: string; costUsd: number; tokens: number; sessions: number; anomaly?: boolean }[];
-  groups: { key: string; costUsd: number; tokens: number; sessions: number; people: number }[];
+  groups: { key: string; id: string | null; costUsd: number; prevCostUsd: number; tokens: number; sessions: number; people: number }[];
   models: { model: string; costUsd: number; sessions: number }[];
   forecast: { monthStart: string; monthEnd: string; monthToDateUsd: number; dailyRunRateUsd: number; projectedMonthUsd: number };
   tools: { tool: string; calls: number; fails: number }[];
@@ -31,7 +31,14 @@ const GROUP_LABEL: Record<string, string> = { team: "Team", cost_center: "Cost c
 const groupLabel = (g: string) => GROUP_LABEL[g] ?? `Tag: ${g.slice(4)}`;
 
 const utc = (t: number) => new Date(t).toISOString().slice(0, 10);
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A preset ("30", "month") or a range from a link ("c:2026-10-12:2026-10-18"). */
 function preset(p: string): { from: string; to: string } {
+  if (p.startsWith("c:")) {
+    const [, from, to] = p.split(":");
+    if (from && to && DAY_RE.test(from) && DAY_RE.test(to)) return { from, to };
+  }
   const now = new Date();
   const today = utc(now.getTime());
   if (p === "month") return { from: `${today.slice(0, 7)}-01`, to: today };
@@ -149,9 +156,12 @@ export function Analytics() {
   const { me } = useAuth();
   const budgets = useBudgetStatuses();
   const isAdmin = me?.user.role === "admin" || me?.user.role === "owner";
-  const [range, setRange] = useState("30");
-  const [groupBy, setGroupBy] = useState("team");
-  const [team, setTeam] = useState("");
+  // A link (the weekly digest, a spend alert, a team page) can open a given range, team and grouping.
+  const [params] = useSearchParams();
+  const linked = DAY_RE.test(params.get("from") ?? "") && DAY_RE.test(params.get("to") ?? "") ? `c:${params.get("from")}:${params.get("to")}` : null;
+  const [range, setRange] = useState(linked ?? "30");
+  const [groupBy, setGroupBy] = useState(params.get("groupBy") ?? "team");
+  const [team, setTeam] = useState(params.get("team") ?? "");
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -189,6 +199,7 @@ export function Analytics() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-line bg-slate-1 p-1 text-[12.5px]" role="group" aria-label="Date range">
           {PRESETS.map(([k, l]) => <button key={k} onClick={() => setRange(k)} aria-pressed={range === k} className={`rounded-md px-2.5 py-1 ${range === k ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>{l}</button>)}
+          {range.startsWith("c:") ? <button aria-pressed onClick={() => setRange("30")} className="rounded-md bg-slate-3 px-2.5 py-1 text-snow" title="Back to the last 30 days">{shortDay(r.from)}{r.to !== r.from ? ` – ${shortDay(r.to)}` : ""} ×</button> : null}
         </div>
         <div className="w-44"><Select aria-label="Team" value={team} onChange={(e) => setTeam(e.target.value)} className="h-9 text-[13px]">
           <option value="">All teams</option>
@@ -297,12 +308,12 @@ export function Analytics() {
                 {data.daily.some((d) => d.anomaly) ? <p className="mt-2 text-[12px] text-fog">Marked days spent more than three standard deviations above the two weeks before them.</p> : null}
               </Panel>
               <div className="mt-4 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-                <Panel title={`By ${groupLabel(groupBy).toLowerCase()}`}>
+                <Panel title={`By ${groupLabel(groupBy).toLowerCase()}`} action={<span className="text-[11.5px] text-fog">change on the {data.range.days} days before</span>}>
                   <BarList
                     sub={`Spend by ${groupLabel(groupBy).toLowerCase()}`}
                     total={t!.costUsd}
                     format={(n) => fmtUsd(n)}
-                    rows={[...top.map((g) => ({ key: groupBy === "model" ? modelShort(g.key) : g.key, value: g.costUsd, sub: `${g.sessions} sess.` })), ...(rest > 0 ? [{ key: `Other (${data.groups.length - 12})`, value: rest }] : [])]}
+                    rows={[...top.map((g) => ({ key: groupBy === "model" ? modelShort(g.key) : g.key, value: g.costUsd, sub: `${g.sessions} sess.`, prev: g.prevCostUsd, href: g.id ? (groupBy === "team" ? `/app/teams/${g.id}` : groupBy === "person" ? `/app/people/${g.id}` : undefined) : undefined })), ...(rest > 0 ? [{ key: `Other (${data.groups.length - 12})`, value: rest }] : [])]}
                   />
                 </Panel>
                 <Panel title="By model">

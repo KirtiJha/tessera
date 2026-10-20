@@ -22,6 +22,11 @@ export function sessionLink(sessionId?: string): string {
   return sessionId ? `${config.publicUrl}/app/sessions/${encodeURIComponent(sessionId)}` : `${config.publicUrl}/app`;
 }
 
+/** Where "Open in Tessera" goes: the notification's own page when it has one (a digest, a spend alert), else its session. */
+export function linkFor(n: { sessionId?: string; path?: string }): string {
+  return n.path ? `${config.publicUrl}${n.path}` : sessionLink(n.sessionId);
+}
+
 function plain(text: string, max = 150) {
   return { type: "plain_text" as const, text: text.slice(0, max) || " ", emoji: false };
 }
@@ -39,7 +44,7 @@ function baseBlocks(n: Notification): unknown[] {
 export function webhookMessage(n: Notification): unknown {
   return {
     text: `${n.title} — ${n.text}`.slice(0, 3000),
-    blocks: [...baseBlocks(n), { type: "actions", elements: [{ type: "button", text: plain("Open in Tessera"), url: sessionLink(n.sessionId) }] }],
+    blocks: [...baseBlocks(n), { type: "actions", elements: [{ type: "button", text: plain("Open in Tessera"), url: linkFor(n) }] }],
   };
 }
 
@@ -59,7 +64,7 @@ export function appMessage(n: Notification, channelId: string): { text: string; 
       actions.push({ type: "button", action_id: "tessera_sendback", text: plain("Send back…"), value: v("reject") });
     }
   }
-  actions.push({ type: "button", action_id: "tessera_open", text: plain("Open in Tessera"), url: sessionLink(n.sessionId) });
+  actions.push({ type: "button", action_id: "tessera_open", text: plain("Open in Tessera"), url: linkFor(n) });
   const blocks = [...baseBlocks(n), { type: "actions", block_id: "tessera_actions", elements: actions }];
   if (actions.length > 1) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: "Answering here is recorded in Tessera's audit log under your name." }] });
   return { text: `${n.title} — ${n.text}`.slice(0, 3000), blocks };
@@ -72,7 +77,7 @@ export function resolvedMessage(n: Pick<Notification, "title" | "text" | "fields
     blocks: [
       ...baseBlocks({ ...n, event: "session.waiting", dedupeKey: "" }),
       { type: "context", elements: [{ type: "mrkdwn", text: esc(outcome) }] },
-      { type: "actions", elements: [{ type: "button", action_id: "tessera_open", text: plain("Open in Tessera"), url: sessionLink(n.sessionId) }] },
+      { type: "actions", elements: [{ type: "button", action_id: "tessera_open", text: plain("Open in Tessera"), url: linkFor(n) }] },
     ],
   };
 }

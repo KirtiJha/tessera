@@ -16,6 +16,8 @@ export const EVENTS: [string, string][] = [
   ["budget.breach", "A budget limit is reached"],
   ["policy.denied", "A policy denies a tool call"],
   ["session.stale", "A session goes silent"],
+  ["spend.anomaly", "Spend is far above usual, for the organisation or a team"],
+  ["digest.weekly", "Weekly digest, Monday mornings (UTC)"],
 ];
 
 const KINDS: { kind: Kind; label: string; blurb: string; icon: LucideIcon }[] = [
@@ -75,7 +77,20 @@ export function Notifications() {
     toast(r.error ? `The channel answered with an error: ${r.error}` : "Test sent.", r.error ? "error" : "ok");
     await load();
   };
-  const patch = (c: Channel, body: Partial<Pick<Channel, "enabled" | "delaySeconds">>) => void api.patch(`/api/admin/channels/${c.id}`, body).then(load);
+  // Shown at once, then confirmed by the server's copy (or put back if it refused).
+  const patch = (c: Channel, body: Partial<Pick<Channel, "enabled" | "delaySeconds" | "events">>) => {
+    setData((d) => (d ? { ...d, channels: d.channels.map((x) => (x.id === c.id ? { ...x, ...body } : x)) } : d));
+    void api
+      .patch(`/api/admin/channels/${c.id}`, body)
+      .catch((e) => toast(e instanceof ApiError ? e.message : "Could not save that.", "error"))
+      .finally(() => void load());
+  };
+  const [editing, setEditing] = useState<string | null>(null);
+  const digest = async (c: Channel) => {
+    const r = await api.post<{ error: string | null }>(`/api/admin/channels/${c.id}/digest`);
+    toast(r.error ? `The channel answered with an error: ${r.error}` : "Last week's digest sent.", r.error ? "error" : "ok");
+    await load();
+  };
 
   return (
     <div className="mx-auto max-w-4xl p-3 sm:p-5">
@@ -94,7 +109,15 @@ export function Notifications() {
                     {c.kind === "slack_app" ? <span className="ml-1.5 text-[11.5px] text-fog">buttons on · {c.slackChannel}</span> : null}
                     {c.kind === "webhook" && c.signed ? <span className="ml-1.5 text-[11.5px] text-fog">signed</span> : null}
                   </div>
-                  <div className="text-[12px] text-fog">{c.events.map((e) => EVENTS.find((x) => x[0] === e)?.[1] ?? e).join(" · ")}</div>
+                  <div className="text-[12px] text-fog">
+                    {c.events.map((e) => EVENTS.find((x) => x[0] === e)?.[1] ?? e).join(" · ") || "no events"}
+                    <button onClick={() => setEditing(editing === c.id ? null : c.id)} className="ml-2 text-mist underline-offset-2 hover:text-teal-300 hover:underline" aria-expanded={editing === c.id} aria-label={`${editing === c.id ? "Done changing" : "Change"} events for ${c.name}`}>{editing === c.id ? "Done" : "Change"}</button>
+                  </div>
+                  {editing === c.id ? (
+                    <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                      {EVENTS.map(([k, label]) => <label key={k} className="flex items-center gap-2 text-[12.5px] text-mist"><input type="checkbox" checked={c.events.includes(k)} onChange={(e) => patch(c, { events: e.target.checked ? [...c.events, k] : c.events.filter((x) => x !== k) })} /> {label}</label>)}
+                    </div>
+                  ) : null}
                   <div className="text-[12px] text-fog">{c.lastError ? <span className="text-rose-400">last error: {c.lastError}</span> : c.lastSentAt ? `last sent ${fmtDate(c.lastSentAt)}` : "nothing sent yet"}</div>
                 </div>
                 {c.events.includes("session.waiting") ? (
@@ -105,6 +128,7 @@ export function Notifications() {
                 ) : null}
                 <label className="flex items-center gap-1.5 text-mist"><input type="checkbox" checked={c.enabled} onChange={(e) => patch(c, { enabled: e.target.checked })} /> enabled</label>
                 <Button size="sm" onClick={() => void test(c)}>Send a test</Button>
+                {c.events.includes("digest.weekly") ? <Button size="sm" onClick={() => void digest(c)} title="Send last week's digest to this channel now">Send last week's digest</Button> : null}
                 <button onClick={() => void confirm({ title: `Delete ${c.name}?`, body: "Nothing will be sent there any more.", action: "Delete", tone: "danger" }).then((ok) => { if (ok) void api.del(`/api/admin/channels/${c.id}`).then(load); })} className="text-fog hover:text-rose-400">Delete</button>
               </li>
             ))}

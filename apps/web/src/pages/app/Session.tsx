@@ -358,7 +358,7 @@ export function SessionPage() {
               {s.continuedFrom ? <Link to={`/app/sessions/${encodeURIComponent(s.continuedFrom)}`} className="rounded-md bg-slate-2 px-2 py-0.5 text-[11.5px] font-medium text-mist hover:text-snow">continues an earlier session →</Link> : null}
             </div>
             <div className="mt-1 break-words text-[13px] text-fog">
-              {s.ownerName ?? "Unassigned"}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.cwd ? ` · ${s.cwd}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}{s.git?.worktree ? " (worktree)" : ""}
+              {s.ownerId && s.ownerName ? <Link to={`/app/people/${s.ownerId}`} className="hover:text-teal-300 hover:underline">{s.ownerName}</Link> : s.ownerName ?? "Unassigned"}{s.machine ? ` · ${s.machine.hostname}` : ""}{s.cwd ? ` · ${s.cwd}` : ""}{s.git?.branch ? ` · ${s.git.branch}` : ""}{s.git?.worktree ? " (worktree)" : ""}
               {s.git && (s.git.ahead || s.git.behind || s.git.modified) ? (
                 <span className="ml-2 inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-[12px]" title="Commits ahead and behind the upstream branch, and files modified since the last commit">
                   {s.git.ahead ? <span className="text-teal-300">↑{s.git.ahead}</span> : null}

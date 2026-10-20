@@ -136,7 +136,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     if (views.length) out.push({ label: "Wall views", items: views.map((v) => ({ id: `v:${v.id}`, title: v.name, subtitle: [v.only !== "all" ? v.only : null, v.group !== "state" ? `by ${v.group}` : null, v.q ? `“${v.q}”` : null].filter(Boolean).join(" · ") || "everything, by state", icon: <Bookmark size={14} className="text-fog" />, run: () => go(`/app?view=${encodeURIComponent(v.id)}`) })) });
     if (q.trim() && people?.length) {
       const hits = rank(q, people, (p) => [p.name, p.team, p.role], 5);
-      if (hits.length) out.push({ label: "People", items: hits.map((p) => ({ id: `u:${p.id}`, title: p.name, subtitle: [p.role, p.team].filter(Boolean).join(" · "), icon: <User size={14} className="text-fog" />, run: () => go(`/app?q=${encodeURIComponent(p.name)}`) })) });
+      if (hits.length) out.push({ label: "People", items: hits.map((p) => ({ id: `u:${p.id}`, title: p.name, subtitle: [p.role, p.team].filter(Boolean).join(" · "), icon: <User size={14} className="text-fog" />, run: () => go(`/app/people/${encodeURIComponent(p.id)}`) })) });
     }
     if (ended.length)
       out.push({

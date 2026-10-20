@@ -13,6 +13,7 @@ import { DataPage } from "./pages/app/DataPage";
 import { Devices } from "./pages/app/Devices";
 import { History } from "./pages/app/History";
 import { People } from "./pages/app/People";
+import { ProfilePage } from "./pages/app/Profile";
 import { Policies } from "./pages/app/Policies";
 import { SessionPage } from "./pages/app/Session";
 import { Sso } from "./pages/app/Sso";
@@ -53,6 +54,8 @@ function App() {
           <Route path="devices" element={<Devices />} />
           <Route path="settings" element={<Account />} />
           <Route path="keys" element={<ApiKeys />} />
+          <Route path="people/:id" element={<ProfilePage kind="person" />} />
+          <Route path="teams/:id" element={<ProfilePage kind="team" />} />
           <Route element={<RequireAdmin />}>
             <Route path="people" element={<People />} />
             <Route path="budgets" element={<Budgets />} />

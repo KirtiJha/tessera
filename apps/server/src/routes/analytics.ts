@@ -5,6 +5,7 @@ import { canManageOrg } from "../auth/rbac.js";
 import { checkMutation, requireUser } from "../auth/session.js";
 import { pool } from "../db/pool.js";
 import { rollupDays, utcDay } from "../fleet/rollup.js";
+import { anomalies } from "../fleet/spend.js";
 
 export const DEFAULT_TICKET_PATTERN = "[A-Z][A-Z0-9]+-[0-9]+";
 const GROUPS = ["team", "cost_center", "person", "repo", "ticket", "model"] as const;
@@ -62,23 +63,7 @@ async function freshen(): Promise<void> {
   await rollupDays(utcDay(Date.now()), utcDay(Date.now()));
 }
 
-/**
- * Days whose cost is far above the trailing two weeks: mean + 3 standard
- * deviations, at least $5 above the mean, and only once a week of those two
- * had spend (the first busy day after a quiet spell is not an anomaly).
- */
-export function anomalies(daily: { day: string; costUsd: number }[]): Set<string> {
-  const out = new Set<string>();
-  for (let i = 7; i < daily.length; i++) {
-    const w = daily.slice(Math.max(0, i - 14), i).map((d) => d.costUsd);
-    if (w.filter((v) => v > 0).length < 7) continue;
-    const mean = w.reduce((a, b) => a + b, 0) / w.length;
-    const sd = Math.sqrt(w.reduce((a, b) => a + (b - mean) ** 2, 0) / w.length);
-    const v = daily[i]!.costUsd;
-    if (v > mean + 3 * sd && v - mean >= 5) out.add(daily[i]!.day);
-  }
-  return out;
-}
+export { anomalies } from "../fleet/spend.js";
 
 function csvCell(v: unknown): string {
   let s = v === null || v === undefined ? "" : String(v);
@@ -116,17 +101,23 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
 
     const prevFrom = utcDay(Date.parse(from) - days * 86_400_000);
     const prevTo = utcDay(Date.parse(from) - 86_400_000);
+    // Team and person groups carry their id, so the console can open the team's or the person's page.
+    const idExpr = q.groupBy === "team" ? "t.id::text" : q.groupBy === "person" ? "o.id::text" : "NULL::text";
+    // The same groups over the period of the same length just before, for the change column.
+    const prevBase = [...base];
+    prevBase[1] = prevFrom;
+    prevBase[2] = prevTo;
     const sessFilter = q.team ? " AND s.team_id = $4" : "";
     const sessParams = q.team ? [p.orgId, from, to, q.team] : [p.orgId, from, to];
 
-    const [daily, groups, totals, prev, agentStats, asks, models] = await Promise.all([
+    const [daily, groups, totals, prev, agentStats, asks, models, prevGroups] = await Promise.all([
       pool.query<{ day: string; cost: string; tokens: string; sessions: number }>(
         `SELECT to_char(u.day, 'YYYY-MM-DD') AS day, SUM(u.cost_usd) AS cost, SUM(u.tokens) AS tokens, COUNT(DISTINCT u.session_id)::int AS sessions ${FROM} GROUP BY u.day ORDER BY u.day`,
         base.slice(0, q.team ? 4 : 3),
       ),
-      pool.query<{ key: string; cost: string; tokens: string; sessions: number; people: number }>(
-        `SELECT ${key} AS key, SUM(u.cost_usd) AS cost, SUM(u.tokens) AS tokens, COUNT(DISTINCT u.session_id)::int AS sessions, COUNT(DISTINCT s.owner_id)::int AS people
-           ${FROM} GROUP BY 1 ORDER BY 2 DESC LIMIT 200`,
+      pool.query<{ key: string; id: string | null; cost: string; tokens: string; sessions: number; people: number }>(
+        `SELECT ${key} AS key, ${idExpr} AS id, SUM(u.cost_usd) AS cost, SUM(u.tokens) AS tokens, COUNT(DISTINCT u.session_id)::int AS sessions, COUNT(DISTINCT s.owner_id)::int AS people
+           ${FROM} GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 200`,
         base,
       ),
       pool.query<{ cost: string | null; tokens: string | null; sessions: number; people: number }>(
@@ -157,7 +148,9 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         `SELECT COALESCE(s.model, 'unknown') AS model, SUM(u.cost_usd) AS cost, COUNT(DISTINCT u.session_id)::int AS sessions ${FROM} GROUP BY 1 ORDER BY 2 DESC LIMIT 12`,
         base.slice(0, q.team ? 4 : 3),
       ),
+      pool.query<{ key: string; cost: string }>(`SELECT ${key} AS key, SUM(u.cost_usd) AS cost ${FROM} GROUP BY 1`, prevBase),
     ]);
+    const prevByKey = new Map(prevGroups.rows.map((g) => [g.key, Number(g.cost)]));
 
     // What the sessions did, who they waited on, and when they ran.
     const inRange = `s.org_id = $1 AND s.started_at >= $2::date AND s.started_at < ($3::date + 1)${sessFilter}`;
@@ -259,7 +252,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
         meanWaitMs: a.mean_ms,
       },
       daily: series,
-      groups: groups.rows.map((g) => ({ key: g.key, costUsd: Number(g.cost), tokens: Number(g.tokens), sessions: g.sessions, people: g.people })),
+      groups: groups.rows.map((g) => ({ key: g.key, id: g.id, costUsd: Number(g.cost), prevCostUsd: prevByKey.get(g.key) ?? 0, tokens: Number(g.tokens), sessions: g.sessions, people: g.people })),
       models: models.rows.map((m) => ({ model: m.model, costUsd: Number(m.cost), sessions: m.sessions })),
       forecast: { monthStart, monthEnd: utcDay(monthEnd.getTime()), monthToDateUsd: mtdUsd, dailyRunRateUsd: runRate, projectedMonthUsd: mtdUsd + runRate * daysLeft },
       tools: tools.rows.map((r) => ({ tool: r.tool, calls: Number(r.calls), fails: failsByTool.get(r.tool) ?? 0 })),
@@ -271,6 +264,105 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       hours: heat,
       cache: { hitRate: promptSide ? Number(c?.cache_read ?? 0) / promptSide : null, input: Number(c?.input ?? 0), cacheRead: Number(c?.cache_read ?? 0), cacheWrite: Number(c?.cache_write ?? 0), output: Number(c?.output ?? 0) },
       topSessions: topSessions.rows.map((r) => ({ id: r.id, name: r.name, owner: r.owner, costUsd: Number(r.cost) })),
+    };
+  });
+
+  /**
+   * One person or one team over a period: spend against the period before,
+   * day by day, the repositories it went on, how long their prompts waited and
+   * how fast they answered others', recent sessions, and for a team each
+   * member's share. Visible to everyone who can see the wall, as Analytics is.
+   */
+  app.get("/profile/:kind/:id", async (req, reply) => {
+    const p = req.principal!;
+    const { kind, id } = z.object({ kind: z.enum(["person", "team"]), id: z.string().uuid() }).parse(req.params);
+    const pq = z.object({ days: z.coerce.number().int().min(1).max(366).default(30), from: Range.shape.from, to: Range.shape.to }).parse(req.query);
+    const { from, to, days } = range({ groupBy: "team", ...pq });
+    await freshen().catch((e) => req.log.warn({ err: e }, "rollup failed"));
+    const subject =
+      kind === "person"
+        ? (await pool.query<{ id: string; name: string; role: string; status: string; team_id: string | null; team_name: string | null }>(
+            "SELECT u.id, u.name, u.role, u.status, u.team_id, t.name AS team_name FROM users u LEFT JOIN teams t ON t.id = u.team_id WHERE u.org_id = $1 AND u.id = $2",
+            [p.orgId, id],
+          )).rows[0]
+        : (await pool.query<{ id: string; name: string; cost_center: string | null; members: number }>(
+            "SELECT t.id, t.name, t.cost_center, (SELECT COUNT(*)::int FROM users u WHERE u.team_id = t.id AND u.status <> 'disabled') AS members FROM teams t WHERE t.org_id = $1 AND t.id = $2",
+            [p.orgId, id],
+          )).rows[0];
+    if (!subject) return reply.code(404).send({ error: `no such ${kind}` });
+
+    const col = kind === "person" ? "s.owner_id" : "s.team_id";
+    const prevFrom = utcDay(Date.parse(from) - days * 86_400_000);
+    const prevTo = utcDay(Date.parse(from) - 86_400_000);
+    const spend = `FROM usage_daily u JOIN sessions s ON s.org_id = u.org_id AND s.id = u.session_id WHERE u.org_id = $1 AND ${col} = $2 AND u.day BETWEEN $3::date AND $4::date`;
+    const started = `s.org_id = $1 AND ${col} = $2 AND s.started_at >= $3::date AND s.started_at < ($4::date + 1)`;
+    const args = [p.orgId, id, from, to];
+    const [totals, prev, daily, repos, sessionStats, waits, answered, recent, members] = await Promise.all([
+      pool.query<{ cost: string | null; tokens: string | null; sessions: number }>(`SELECT SUM(u.cost_usd) AS cost, SUM(u.tokens) AS tokens, COUNT(DISTINCT u.session_id)::int AS sessions ${spend}`, args),
+      pool.query<{ cost: string | null; sessions: number }>(`SELECT SUM(u.cost_usd) AS cost, COUNT(DISTINCT u.session_id)::int AS sessions ${spend}`, [p.orgId, id, prevFrom, prevTo]),
+      pool.query<{ day: string; cost: string; sessions: number }>(`SELECT to_char(u.day, 'YYYY-MM-DD') AS day, SUM(u.cost_usd) AS cost, COUNT(DISTINCT u.session_id)::int AS sessions ${spend} GROUP BY u.day`, args),
+      pool.query<{ repo: string; cost: string; sessions: number }>(`SELECT COALESCE(s.git->>'repo', 'No repository') AS repo, SUM(u.cost_usd) AS cost, COUNT(DISTINCT u.session_id)::int AS sessions ${spend} GROUP BY 1 ORDER BY 2 DESC LIMIT 6`, args),
+      pool.query<{ failed: number; blowouts: number }>(
+        `SELECT COALESCE(SUM((SELECT COUNT(*) FROM agents a WHERE a.org_id = s.org_id AND a.session_id = s.id AND a.status = 'failed')), 0)::int AS failed, COALESCE(SUM(s.blowouts), 0)::int AS blowouts FROM sessions s WHERE ${started}`,
+        args,
+      ),
+      pool.query<{ n: number; p50: number | null }>(
+        `SELECT COUNT(*)::int AS n, (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (a.closed_at - a.created_at))) * 1000)::float AS p50
+           FROM asks a JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id
+          WHERE a.org_id = $1 AND ${col} = $2 AND a.created_at >= $3::date AND a.created_at < ($4::date + 1)`,
+        args,
+      ),
+      pool.query<{ n: number; p50: number | null }>(
+        `SELECT COUNT(*)::int AS n, (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (a.closed_at - a.created_at))) * 1000)::float AS p50
+           FROM asks a JOIN users w ON w.id = a.answered_by
+          WHERE a.org_id = $1 AND a.outcome = 'answered' AND ${kind === "person" ? "w.id = $2" : "w.team_id = $2"} AND a.created_at >= $3::date AND a.created_at < ($4::date + 1)`,
+        args,
+      ),
+      pool.query<{ id: string; name: string | null; owner: string | null; owner_id: string | null; status: string; started_at: string; ended_at: string | null; cost: string | null }>(
+        `SELECT s.id, COALESCE(s.name, s.git->>'repo', s.cwd) AS name, o.name AS owner, s.owner_id, s.status, s.started_at, COALESCE(s.ended_at, s.dropped_at) AS ended_at,
+                (SELECT SUM(x.cost_usd) FROM usage_daily x WHERE x.org_id = s.org_id AND x.session_id = s.id) AS cost
+           FROM sessions s LEFT JOIN users o ON o.id = s.owner_id WHERE s.org_id = $1 AND ${col} = $2 ORDER BY s.started_at DESC LIMIT 10`,
+        [p.orgId, id],
+      ),
+      kind === "team"
+        ? pool.query<{ id: string; name: string; role: string; cost: string | null; prev: string | null; sessions: number }>(
+            `SELECT w.id, w.name, w.role,
+                    (SELECT SUM(u.cost_usd) FROM usage_daily u JOIN sessions s ON s.org_id = u.org_id AND s.id = u.session_id WHERE u.org_id = $1 AND s.owner_id = w.id AND u.day BETWEEN $3::date AND $4::date) AS cost,
+                    (SELECT SUM(u.cost_usd) FROM usage_daily u JOIN sessions s ON s.org_id = u.org_id AND s.id = u.session_id WHERE u.org_id = $1 AND s.owner_id = w.id AND u.day BETWEEN $5::date AND $6::date) AS prev,
+                    (SELECT COUNT(*)::int FROM sessions s WHERE s.org_id = $1 AND s.owner_id = w.id AND s.started_at >= $3::date AND s.started_at < ($4::date + 1)) AS sessions
+               FROM users w WHERE w.org_id = $1 AND w.team_id = $2 AND w.status <> 'disabled' ORDER BY cost DESC NULLS LAST, w.name`,
+            [p.orgId, id, from, to, prevFrom, prevTo],
+          )
+        : Promise.resolve(null),
+    ]);
+    const byDay = new Map(daily.rows.map((d) => [d.day, d]));
+    const series = Array.from({ length: days }, (_, i) => {
+      const d = utcDay(Date.parse(from) + i * 86_400_000);
+      return { day: d, costUsd: Number(byDay.get(d)?.cost ?? 0), sessions: byDay.get(d)?.sessions ?? 0 };
+    });
+    const flagged = anomalies(series);
+    const t = totals.rows[0]!;
+    const sub = subject as Record<string, unknown>;
+    return {
+      subject:
+        kind === "person"
+          ? { kind, id, name: sub.name, role: sub.role, status: sub.status, team: sub.team_id ? { id: sub.team_id, name: sub.team_name } : null }
+          : { kind, id, name: sub.name, costCenter: sub.cost_center ?? null, members: sub.members },
+      range: { from, to, days },
+      totals: {
+        costUsd: Number(t.cost ?? 0),
+        prevCostUsd: Number(prev.rows[0]?.cost ?? 0),
+        sessions: t.sessions,
+        prevSessions: prev.rows[0]?.sessions ?? 0,
+        tokens: Number(t.tokens ?? 0),
+        failedAgents: sessionStats.rows[0]!.failed,
+        blowouts: sessionStats.rows[0]!.blowouts,
+      },
+      daily: series.map((d) => (flagged.has(d.day) ? { ...d, anomaly: true } : d)),
+      repos: repos.rows.map((r) => ({ repo: r.repo, costUsd: Number(r.cost), sessions: r.sessions })),
+      prompts: { waited: { count: waits.rows[0]!.n, p50Ms: waits.rows[0]!.p50 }, answered: { count: answered.rows[0]!.n, p50Ms: answered.rows[0]!.p50 } },
+      recent: recent.rows.map((r) => ({ id: r.id, name: r.name, owner: r.owner, ownerId: r.owner_id, status: r.status, startedAt: r.started_at, endedAt: r.ended_at, costUsd: r.cost === null ? null : Number(r.cost) })),
+      members: members ? members.rows.map((m) => ({ id: m.id, name: m.name, role: m.role, costUsd: Number(m.cost ?? 0), prevCostUsd: Number(m.prev ?? 0), sessions: m.sessions })) : null,
     };
   });
 

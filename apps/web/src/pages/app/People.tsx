@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button, Field, Input, Modal, Panel, Select, useConfirm, useToast } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -76,7 +77,7 @@ export function People() {
             {users.map((u) => (
               <tr key={u.id} className={u.status === "disabled" ? "text-ash" : "text-mist"}>
                 <td className="py-2.5">
-                  <div className="font-medium text-snow">{u.name}{u.id === me?.user.id ? <span className="ml-1.5 text-[11px] text-fog">(you)</span> : null}{u.ssoLinked ? <span className="ml-2 rounded bg-teal-700/40 px-1.5 py-0.5 text-[10.5px] font-medium text-teal-300" title="Signs in through your identity provider">SSO</span> : null}</div>
+                  <div className="font-medium text-snow"><Link to={`/app/people/${u.id}`} className="hover:text-teal-300 hover:underline">{u.name}</Link>{u.id === me?.user.id ? <span className="ml-1.5 text-[11px] text-fog">(you)</span> : null}{u.ssoLinked ? <span className="ml-2 rounded bg-teal-700/40 px-1.5 py-0.5 text-[10.5px] font-medium text-teal-300" title="Signs in through your identity provider">SSO</span> : null}</div>
                   <div className="text-[11.5px] text-fog">{u.email}{u.ssoLinked && me?.user.role === "owner" ? <button onClick={() => void confirm({ title: `Unlink ${u.name} from your identity provider?`, body: `Their next SSO sign-in links whichever identity your provider sends for ${u.email}.`, action: "Unlink", tone: "danger" }).then((ok) => { if (ok) void api.post(`/api/admin/sso/users/${u.id}/unlink`).then(() => { toast("Unlinked."); return load(); }); })} className="ml-2 text-fog underline-offset-2 hover:text-rose-400 hover:underline">Unlink SSO</button> : null}</div>
                 </td>
                 <td className="py-2.5">
@@ -108,7 +109,7 @@ export function People() {
         <div className="flex flex-wrap gap-2">
           {teams.map((t) => (
             <span key={t.id} className="inline-flex items-center gap-2 rounded-lg border border-line-2 bg-slate-2 px-3 py-1.5 text-[13px]">
-              {t.name} <span className="text-fog">{t.members}</span>
+              <Link to={`/app/teams/${t.id}`} className="hover:text-teal-300 hover:underline">{t.name}</Link> <span className="text-fog">{t.members}</span>
               <button onClick={() => void confirm({ title: `Delete team "${t.name}"?`, body: "Members keep their accounts.", action: "Delete", tone: "danger" }).then((ok) => { if (ok) void api.del(`/api/admin/teams/${t.id}`).then(load); })} className="text-fog hover:text-rose-400" aria-label={`Delete ${t.name}`}>×</button>
             </span>
           ))}

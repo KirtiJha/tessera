@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { ingestPool, pool, withTx } from "../db/pool.js";
 import { hasDelayedChannels, notify, resolveNotifications, type Notification } from "../notify/notifier.js";
 import { prefsFor, pushTo, type PushPayload } from "../notify/personal.js";
+import { runScheduled } from "../notify/digest.js";
 import { applicable, budgetStatuses, recordBreach } from "./budgets.js";
 import { deriveSession } from "./derive.js";
 import { computeKpis } from "./kpis.js";
@@ -221,6 +222,11 @@ export class Fleet {
         60 * 60 * 1000,
       ),
     );
+    // The weekly digest and spend alerts: every quarter hour, so a Monday digest and a same-day alert are never late by much.
+    // Each replica runs it; the notification log sends each digest and alert once.
+    const scheduled = () => void runScheduled(this.log).catch((e) => this.log.error({ err: e }, "scheduled notifications failed"));
+    this.timers.push(setTimeout(scheduled, 60_000) as unknown as ReturnType<typeof setInterval>);
+    this.timers.push(setInterval(scheduled, 15 * 60_000));
   }
 
   async stop(): Promise<void> {
@@ -338,7 +344,9 @@ export class Fleet {
     const cost = priceFor(usage, table).usd;
     const total = totalTokens(rec.tokens) + rec.agents.reduce((n, a) => n + totalTokens(a.tokens), 0);
     const key = `${orgId}:${s.id}`;
-    const prevTotal = this.lastTokens.get(key) ?? (existing ? totalTokens(existing.tokens) + existing.agents.reduce((n, a) => n + totalTokens(a.tokens), 0) : total);
+    // A session seen before (in memory, or stored before a restart) rises from its last total; a new one from nothing,
+    // so the tokens in its first report count as usage.
+    const prevTotal = this.lastTokens.get(key) ?? (existing ? totalTokens(existing.tokens) + existing.agents.reduce((n, a) => n + totalTokens(a.tokens), 0) : 0);
     const delta = Math.max(0, total - prevTotal);
     this.lastTokens.set(key, total);
 

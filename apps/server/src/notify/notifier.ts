@@ -2,10 +2,10 @@ import { createHmac } from "node:crypto";
 import { decrypt } from "../auth/crypto.js";
 import { config } from "../config.js";
 import { pool } from "../db/pool.js";
-import { appMessage, resolvedMessage, sessionLink, slackApi, webhookMessage } from "./slack.js";
+import { appMessage, linkFor, resolvedMessage, slackApi, webhookMessage } from "./slack.js";
 
-export type NotifyEvent = "session.waiting" | "agent.failed" | "budget.breach" | "context.blowout" | "session.stale" | "policy.denied";
-export const NOTIFY_EVENTS: NotifyEvent[] = ["session.waiting", "agent.failed", "budget.breach", "context.blowout", "session.stale", "policy.denied"];
+export type NotifyEvent = "session.waiting" | "agent.failed" | "budget.breach" | "context.blowout" | "session.stale" | "policy.denied" | "spend.anomaly" | "digest.weekly";
+export const NOTIFY_EVENTS: NotifyEvent[] = ["session.waiting", "agent.failed", "budget.breach", "context.blowout", "session.stale", "policy.denied", "spend.anomaly", "digest.weekly"];
 
 export type ChannelKind = "slack_webhook" | "slack_app" | "teams_webhook" | "pagerduty" | "webhook";
 export const CHANNEL_KINDS: ChannelKind[] = ["slack_webhook", "slack_app", "teams_webhook", "pagerduty", "webhook"];
@@ -18,6 +18,8 @@ export interface Notification {
   text: string;
   sessionId?: string;
   fields?: Record<string, string>;
+  /** A console page to link to instead of the session, such as "/app/analytics". */
+  path?: string;
   /** The open prompt, when the notification is about one: lets chat apps answer it. */
   ask?: { id: string; kind: "question" | "plan" | "permission" };
   severity?: "critical" | "error" | "warning" | "info";
@@ -87,7 +89,7 @@ function teamsCard(n: Notification): unknown {
             { type: "TextBlock", text: n.text.slice(0, 2000), wrap: true },
             ...(facts.length ? [{ type: "FactSet", facts }] : []),
           ],
-          actions: [{ type: "Action.OpenUrl", title: "Open in Tessera", url: sessionLink(n.sessionId) }],
+          actions: [{ type: "Action.OpenUrl", title: "Open in Tessera", url: linkFor(n) }],
         },
       },
     ],
@@ -109,7 +111,7 @@ function pagerdutyEvent(routingKey: string, n: Notification, action: "trigger" |
     ...(action === "trigger"
       ? {
           payload: { summary: `${n.title}: ${n.text}`.slice(0, 1024), source: config.publicHost, severity: severityOf(n), component: "tessera", class: n.event, custom_details: n.fields ?? {} },
-          links: [{ href: sessionLink(n.sessionId), text: "Open in Tessera" }],
+          links: [{ href: linkFor(n), text: "Open in Tessera" }],
         }
       : {}),
   };
@@ -122,7 +124,21 @@ export function signWebhook(secret: string, body: string, now = Date.now()): str
 }
 
 async function post(url: string, body: unknown, headers: Record<string, string> = {}): Promise<Response> {
-  return fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  try {
+    return await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  } catch (e) {
+    // fetch says only "fetch failed"; the cause says why. The host is safe to show, the rest of a webhook URL may hold a secret.
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    const host = (() => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return "the channel's address";
+      }
+    })();
+    const why = err.name === "TimeoutError" ? "no answer within 5 seconds" : (err.cause?.code ?? err.cause?.message ?? err.message);
+    throw new Error(`Could not reach ${host} (${why}). Check the address, and that the server can reach it through its network or proxy.`);
+  }
 }
 
 /** Deliver one notification to one channel. Returns where it landed, for later updates. */
@@ -146,7 +162,7 @@ async function deliver(c: ChannelRow, n: Notification): Promise<Record<string, u
     case "webhook": {
       if (!c.url_enc) throw new Error("channel has no URL");
       const url = decrypt(c.url_enc);
-      const body = JSON.stringify(c.kind === "slack_webhook" ? webhookMessage(n) : c.kind === "teams_webhook" ? teamsCard(n) : { ...n, link: sessionLink(n.sessionId), sentAt: new Date().toISOString() });
+      const body = JSON.stringify(c.kind === "slack_webhook" ? webhookMessage(n) : c.kind === "teams_webhook" ? teamsCard(n) : { ...n, link: linkFor(n), sentAt: new Date().toISOString() });
       const headers: Record<string, string> = c.kind === "webhook" && s.signingSecret ? { "x-tessera-signature": signWebhook(s.signingSecret, body), "x-tessera-event": n.event } : {};
       const res = await post(url, body, headers);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -212,6 +228,22 @@ export async function resolveNotifications(orgId: string, dedupeKey: string, out
     } catch (e) {
       log.warn({ channel: row.name, err: (e as Error).message }, "notification resolve failed");
     }
+  }
+}
+
+/** Send one notification to one channel now, whatever events it chose and whether it was sent before: "send the digest now". */
+export async function sendToChannel(orgId: string, channelId: string, n: Notification): Promise<string | null> {
+  const r = await pool.query<ChannelRow>("SELECT id, kind, name, url_enc, secret_enc, events, delay_s FROM notification_channels WHERE id = $1 AND org_id = $2", [channelId, orgId]);
+  const c = r.rows[0];
+  if (!c) return "no such channel";
+  try {
+    await deliver(c, n);
+    await pool.query("UPDATE notification_channels SET last_sent_at = now(), last_error = NULL WHERE id = $1", [c.id]);
+    return null;
+  } catch (e) {
+    const msg = (e as Error).message.slice(0, 300);
+    await pool.query("UPDATE notification_channels SET last_error = $2 WHERE id = $1", [c.id, msg]);
+    return msg;
   }
 }
 

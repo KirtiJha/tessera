@@ -196,7 +196,7 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await page.keyboard.press("Enter");
   await page.waitForURL(`**/app/sessions/${waitingId}`);
 
-  // Pages and people are reachable the same way; a person lands on the wall filtered to them.
+  // Pages and people are reachable the same way; a person opens their page, with what they have live.
   await page.getByRole("button", { name: "Open search" }).click();
   await box.fill("audit");
   await expect(results.getByRole("option", { name: /Audit log/ })).toBeVisible();
@@ -205,8 +205,10 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await page.keyboard.press("Control+k");
   await box.fill("erin");
   await results.getByRole("option", { name: /^Erin Example/ }).click(); // the person, not the sessions she owns
-  await page.waitForURL("**/app?q=Erin*");
-  await expect(page.getByPlaceholder(/Filter by name/)).toHaveValue("Erin Example");
+  await page.waitForURL("**/app/people/*");
+  await expect(page.getByRole("heading", { name: "Erin Example", level: 1 })).toBeVisible();
+  await expect(page.getByText(/^Spend, last 30 days$/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Live now · [1-9]/ })).toBeVisible();
   } finally {
     clearInterval(keepalive);
     // A request still being delayed may belong to a page already left: drop it rather than wait for it.

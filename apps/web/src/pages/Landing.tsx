@@ -136,7 +136,7 @@ export function Landing() {
           <div>
             <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Guardrails that act, not just report.</h2>
             <p className="mt-4 text-[17px] leading-relaxed text-ash">Write rules that every tool call on every machine is checked against: deny reading secrets files, ask a reviewer before a Terraform apply, allow the exceptions. Try a rule as a dry run first and see who it would have stopped. Budgets do the same for spend: soft limits notify, hard limits deny new tool calls until the window resets.</p>
-            <p className="mt-4 text-[17px] leading-relaxed text-ash">Then see where the money went, by team, cost centre, ticket or tag, with a forecast for the month and a chargeback file for finance.</p>
+            <p className="mt-4 text-[17px] leading-relaxed text-ash">Then see where the money went, by team, cost centre, ticket or tag, each against the period before, with a page for every team and person, a forecast for the month and a chargeback file for finance. A day that spends far more than usual raises an alert the same day, and a weekly digest lands in Slack or Teams every Monday.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {[

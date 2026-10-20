@@ -104,4 +104,12 @@ describe.skipIf(!reachable)("diffs on demand and the context timeline", () => {
     const tl = (await app.inject({ method: "GET", url: `/api/fleet/sessions/${sid}/timeline`, headers: { ...H, cookie: admin } })).json() as { samples: { contextUsed: number; contextWindow: number }[] };
     expect(tl.samples.at(-1)).toMatchObject({ contextUsed: 150_000, contextWindow: 200_000 });
   });
+
+  it("counts the tokens in a new session's first report as usage", async () => {
+    const id = `first-${sfx}`;
+    await app.inject({ method: "POST", url: "/api/ingest/report", headers: dev(), payload: { v: 1, sentAt: new Date().toISOString(), reporter: { kind: "custom", version: "0.1.0" }, machine: { hostname: "h", machineId: "m" }, session: { id, startedAt: new Date().toISOString(), status: "running", tokens: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0 } }, events: [] } });
+    await flush();
+    const r = await pool.query<{ d: string }>("SELECT SUM(tokens_delta) AS d FROM samples WHERE org_id = $1 AND session_id = $2", [orgId, id]);
+    expect(Number(r.rows[0]!.d)).toBe(1200);
+  });
 });

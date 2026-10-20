@@ -11,7 +11,8 @@ import { config } from "../config.js";
 import { pool } from "../db/pool.js";
 import { budgetStatuses, invalidateBudgets } from "../fleet/budgets.js";
 import { invalidatePrices } from "../fleet/pricing.js";
-import { invalidateChannels, NOTIFY_EVENTS, secretsOf, testChannel, type ChannelSecrets, type NotifyEvent } from "../notify/notifier.js";
+import { invalidateChannels, NOTIFY_EVENTS, secretsOf, sendToChannel, testChannel, type ChannelSecrets, type NotifyEvent } from "../notify/notifier.js";
+import { weeklyDigest } from "../notify/digest.js";
 import { slackApi, slackManifest } from "../notify/slack.js";
 import { randomBytes } from "node:crypto";
 
@@ -343,6 +344,15 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     const p = admin(req);
     const { id } = req.params as { id: string };
     return { ok: true, error: await testChannel(p.orgId, id, p.name) };
+  });
+
+  /** Last week's digest, sent to this channel now: to see what Monday's will look like. */
+  app.post("/channels/:id/digest", async (req) => {
+    const p = admin(req);
+    const { id } = req.params as { id: string };
+    const n = await weeklyDigest(p.orgId);
+    const error = await sendToChannel(p.orgId, id, { ...n, dedupeKey: `${n.dedupeKey}:preview:${Date.now()}` });
+    return { ok: true, error, title: n.title, text: n.text };
   });
 
   // ---- audit ------------------------------------------------------------------

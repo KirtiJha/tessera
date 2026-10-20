@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
@@ -87,18 +88,27 @@ export function ColumnChart({ data, format, height = 200, ariaLabel }: { data: C
 }
 
 /** Ranked horizontal bars with the value at the tip and a share column. */
-export function BarList({ rows, format, total, sub }: { rows: { key: string; value: number; sub?: string }[]; format: (n: number) => string; total: number; sub?: string }) {
+/** Change against the period before, as a chip: spend going up is amber, down is teal, nothing before is "new". */
+export function Change({ now, before }: { now: number; before: number }) {
+  if (before <= 0) return now > 0 ? <span className="rounded bg-slate-3 px-1 text-[10.5px] text-mist" title="Nothing in the period before">new</span> : null;
+  const c = (now - before) / before;
+  if (Math.abs(c) < 0.005) return <span className="text-[11px] text-fog" title="Same as the period before">±0%</span>;
+  return <span className={`text-[11px] ${c > 0 ? "text-amber-400" : "text-teal-300"}`} title={`Period before: ${before.toFixed(2)}`}>{c > 0 ? "▲" : "▼"}{Math.round(Math.abs(c) * 100)}%</span>;
+}
+
+export function BarList({ rows, format, total, sub }: { rows: { key: string; value: number; sub?: string; prev?: number; href?: string }[]; format: (n: number) => string; total: number; sub?: string }) {
   const max = Math.max(0.0001, ...rows.map((r) => r.value));
   return (
     <ul className="space-y-2.5" aria-label={sub}>
       {rows.map((r) => (
         <li key={r.key} className="grid grid-cols-[minmax(0,140px)_1fr_auto] items-center gap-3 text-[13px]">
-          <span className="truncate text-snow" title={r.key}>{r.key}</span>
+          {r.href ? <Link to={r.href} className="truncate text-snow hover:text-teal-300 hover:underline" title={`Open ${r.key}`}>{r.key}</Link> : <span className="truncate text-snow" title={r.key}>{r.key}</span>}
           <span className="flex items-center gap-2">
             <span className="h-2.5 rounded-r-[4px] bg-teal-400 transition-[width] duration-500" style={{ width: `${Math.max(0.5, (r.value / max) * 100)}%` }} />
           </span>
           <span className="whitespace-nowrap text-right tabular-nums">
             <span className="font-medium text-snow">{format(r.value)}</span>
+            {r.prev !== undefined ? <span className="ml-1.5"><Change now={r.value} before={r.prev} /></span> : null}
             <span className="ml-2 text-[11.5px] text-fog">{total ? `${Math.round((r.value / total) * 100)}%` : ""}{r.sub ? ` · ${r.sub}` : ""}</span>
           </span>
         </li>

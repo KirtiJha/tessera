@@ -146,6 +146,8 @@ TESSERA_TAGS="project=apollo,ticket=PAY-142" claude
 
 It also shows the share of prompts answered in Tessera (and from Slack), the mean wait for an answer, agent failure rate and context blowouts. Admins download chargeback CSV per group or per session with every allocation column. Cost per session per UTC day is rolled up from the per-minute samples, so spend history outlives the samples' retention.
 
+Each group shows its change against the period of the same length just before (▲ amber when spend rose, ▼ teal when it fell, **new** when there was none). A team or a person opens their own page: spend per day against the period before, the repositories it went on, how long their prompts waited and how quickly they answered other people's, what they have live now and their recent sessions, and for a team each member's share. Names on People and teams, on a session and in the search palette (⌘K) lead there too. Analytics opens on a given period from a link (`/app/analytics?from=2026-10-12&to=2026-10-18`, with `&team=` and `&groupBy=`).
+
 ## Policies
 
 Under **Policies**, admins write rules checked before every tool call on every enrolled machine. The first rule that matches decides:
@@ -158,7 +160,12 @@ Rules match on tool (`Bash`, `Edit`, `mcp__github__*`), command (`terraform appl
 
 ## Notifications and answering from Slack
 
-Under **Notifications**, an admin adds channels for the events that matter: a session waiting on someone, an agent failing, a context window overflowing, a budget limit, a policy denial, a session going silent.
+Under **Notifications**, an admin adds channels for the events that matter: a session waiting on someone, an agent failing, a context window overflowing, a budget limit, a policy denial, a session going silent, and two made from the daily spend:
+
+- **Spend alert**: a day's spend more than three standard deviations above the two weeks before it (and at least $5 above their mean), for the organisation or for one team. Yesterday is checked once it is complete, and today as soon as it has crossed the line, so a runaway shows the same day. Each scope and day alerts once, with a link to the team's page.
+- **Weekly digest**: on Monday from 08:00 UTC, last Monday-to-Sunday week: spend against the week before, the top teams with their change, the costliest sessions, how many prompts waited on people and how fast they were settled, failed agents and blowouts. **Send last week's digest** shows it in the channel now.
+
+A channel's events can be changed in place. Email is not a channel: Tessera has no mail server to send from; a webhook to your mail relay does the job.
 
 | Channel | What it does |
 | --- | --- |
