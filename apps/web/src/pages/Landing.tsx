@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Bell, Eye, Gauge, Lock, ScrollText, Workflow } from "lucide-react";
+import { ArrowRight, Bell, Command, Eye, Gauge, LayoutGrid, Lock, ScrollText, Stethoscope, Workflow } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Lockup, Mark } from "../components/Logo";
 import { Mosaic } from "../components/Mosaic";
@@ -11,13 +11,13 @@ export function Landing() {
   const { me } = useAuth();
   return (
     <div className="light min-h-full font-sans">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-5 sm:px-6">
         <Lockup size={26} className="text-ink" textClass="text-[20px] text-ink" />
         <nav className="flex items-center gap-1 text-[14px]">
-          <a href="#see" className="rounded-lg px-3 py-2 text-ash hover:text-ink">What you see</a>
-          <a href="#act" className="rounded-lg px-3 py-2 text-ash hover:text-ink">Act</a>
-          <a href="#govern" className="rounded-lg px-3 py-2 text-ash hover:text-ink">Govern</a>
-          <a href="#install" className="rounded-lg px-3 py-2 text-ash hover:text-ink">Install</a>
+          <a href="#see" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">What you see</a>
+          <a href="#act" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">Act</a>
+          <a href="#govern" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">Govern</a>
+          <a href="#install" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">Install</a>
           {me ? (
             <Link to="/app" className="ml-2 rounded-lg bg-ink px-4 py-2 font-medium text-paper hover:bg-slate-2">Open console</Link>
           ) : (
@@ -83,10 +83,13 @@ export function Landing() {
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-ink/10 bg-ink/10 sm:grid-cols-2 lg:grid-cols-3">
           {[
             { icon: Eye, title: "State you can read from across the room", body: "Running, waiting on you, background, silent, done. Each state has a colour and a shape, so a wall display works with the sound off." },
-            { icon: Workflow, title: "The agent tree, not just the orchestrator", body: "Every subagent, fork and teammate a session launched, what each one costs, what it loaded, and why it failed when it did." },
+            { icon: Workflow, title: "The agent tree, not just the orchestrator", body: "Every subagent, fork and teammate a session launched, what each one costs, what it loaded, and why it failed when it did, explained in three lines by Claude if your organisation turns that on." },
             { icon: Gauge, title: "Context fill and blowouts", body: "How full every window is now and minute by minute, with each compaction on the timeline, so you know which session is about to lose its memory." },
             { icon: ScrollText, title: "The plan as the session sees it", body: "Task steps with their owner agent and status, straight from the session's own task list." },
             { icon: Bell, title: "Cost you can defend", body: "Tokens priced on read with your contracted rates per model, split by person, team, project and day. An estimate, labelled as one, never a surprise." },
+            { icon: Stethoscope, title: "Needs a look, before it asks", body: "A chip on any session going in circles, hitting policy, filling its context, waiting too long, changing nothing or costing far more than the rest, with the reason one tap away." },
+            { icon: LayoutGrid, title: "A wall arranged your way", body: "Group by state, repository or ticket, go compact to fit a third more, and save the views you come back to. The bell lists what needs a person and can be snoozed." },
+            { icon: Command, title: "Act from the keyboard", body: "Move, allow, deny, pause, message or hand over from the keys, act on several sessions at once, and reach any session, page or person with ⌘K." },
             { icon: Lock, title: "History, replay and audit", body: "Every session that ran, summed up on one card, replayable to any moment you can link to, and every question asked and who answered it in a hash-chained log." },
           ].map(({ icon: Icon, title, body }) => (
             <div key={title} className="bg-paper p-7">
@@ -160,13 +163,13 @@ export function Landing() {
       <section id="install" className="border-t border-ink/10 bg-ink text-snow">
         <div className="mx-auto max-w-6xl px-6 py-20">
           <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] sm:text-[42px]">Up in three steps.</h2>
-          <div className="mt-10 grid gap-6 lg:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
             {[
               { n: "1", t: "Run the server", c: "docker compose up -d\n# or: pnpm start, with DATABASE_URL set", d: "Postgres is the only requirement. Redis is optional, for more than one replica." },
               { n: "2", t: "Enrol a machine", c: "TESSERA=https://tessera.example.com\nnpx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter enrol --server $TESSERA --code XXXX-XXXX", d: "Your server hands out the reporter itself. The one-time code comes from Devices in the console, which shows this command with your address filled in." },
               { n: "3", t: "Install the hooks", c: "npx -y --package=$TESSERA/downloads/tessera-reporter.tgz \\\n  tessera-reporter install", d: "Adds the hooks to ~/.claude/settings.json and keeps the rest of it, plus the Tessera mod on Claude Code 2.1.287 or later. Your next Claude Code session appears on the wall." },
             ].map((s) => (
-              <div key={s.n} className="rounded-2xl border border-line bg-slate-1 p-6">
+              <div key={s.n} className="min-w-0 rounded-2xl border border-line bg-slate-1 p-6">
                 <div className="flex items-center gap-3">
                   <span className="flex h-7 w-7 items-center justify-center rounded-md bg-teal-400 font-display text-[14px] font-bold text-ink">{s.n}</span>
                   <h3 className="text-[16px] font-semibold">{s.t}</h3>

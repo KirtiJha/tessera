@@ -52,7 +52,8 @@ test("an empty wall walks a new person through their first session", async () =>
 
 test("away mode is one click in the top bar, shows plainly, and sticks", async () => {
   await page.getByRole("button", { name: /^Answering: Either/ }).click();
-  await page.getByRole("menuitem", { name: /^Away/ }).click();
+  // The choice is saved before the reload that checks it sticks.
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith("/api/me/preferences") && r.request().method() === "PUT"), page.getByRole("menuitem", { name: /^Away/ }).click()]);
   await expect(page.getByRole("button", { name: /^Answering: Away/ })).toContainText("Away");
   await page.reload();
   await expect(page.getByRole("button", { name: /^Answering: Away/ })).toBeVisible();

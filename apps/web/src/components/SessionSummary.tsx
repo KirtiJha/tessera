@@ -2,12 +2,14 @@ import type { SessionView } from "@tessera/contract";
 import { CheckCircle2, CircleAlert, OctagonX, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fmtDuration, fmtTokens, fmtUsd } from "../lib/format";
+import { HELP } from "../lib/help";
 import { summarize, type SummaryAsk } from "../lib/summary";
+import { Hint } from "./ui";
 
-function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Fact({ label, value, sub, help }: { label: string; value: string; sub?: string; help?: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11.5px] text-fog">{label}</div>
+      <div className="text-[11.5px] text-fog">{label}{help ? <Hint label={label.toLowerCase()}>{help}</Hint> : null}</div>
       <div className="mt-0.5 truncate text-[15px] font-semibold tabular-nums text-snow">{value}</div>
       {sub ? <div className="truncate text-[11.5px] text-fog">{sub}</div> : null}
     </div>
@@ -37,12 +39,12 @@ export function SessionSummary({ s, asks, onReplay }: { s: SessionView; asks: Su
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Fact label="Cost" value={fmtUsd(s.costUsd, 2)} sub={m.cacheShare !== null ? `${Math.round(m.cacheShare * 100)}% of input from cache` : undefined} />
+        <Fact help={`${HELP.cost} ${HELP.cacheShare}`} label="Cost" value={fmtUsd(s.costUsd, 2)} sub={m.cacheShare !== null ? `${Math.round(m.cacheShare * 100)}% of input from cache` : undefined} />
         <Fact label="Tokens" value={fmtTokens(s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite)} sub={`${fmtTokens(s.tokens.output)} written`} />
         <Fact label="Files" value={m.files.count ? `${m.files.count} changed` : "none changed"} sub={m.files.count ? `+${m.files.added} −${m.files.removed}, uncommitted` : m.files.ahead ? `${m.files.ahead} commits ahead` : undefined} />
         <Fact label="Agents" value={m.agents.ran ? `${m.agents.ran} ran` : "none"} sub={m.agents.failed ? `${m.agents.failed} failed` : m.agents.ran ? "none failed" : undefined} />
-        <Fact label="Waited on people" value={m.prompts.asked ? fmtDuration(m.prompts.totalWaitMs) : "never"} sub={m.prompts.asked ? `${m.prompts.asked} prompt${m.prompts.asked === 1 ? "" : "s"}, ${m.prompts.answeredHere} answered in Tessera` : undefined} />
-        <Fact label="Context" value={s.blowouts ? `${s.blowouts} blowout${s.blowouts === 1 ? "" : "s"}` : "no blowouts"} sub={s.context ? `ended at ${Math.round((s.context.used / s.context.window) * 100)}% full` : undefined} />
+        <Fact help={HELP.waited} label="Waited on people" value={m.prompts.asked ? fmtDuration(m.prompts.totalWaitMs) : "never"} sub={m.prompts.asked ? `${m.prompts.asked} prompt${m.prompts.asked === 1 ? "" : "s"}, ${m.prompts.answeredHere} answered in Tessera` : undefined} />
+        <Fact help={HELP.context} label="Context" value={s.blowouts ? `${s.blowouts} blowout${s.blowouts === 1 ? "" : "s"}` : "no blowouts"} sub={s.context ? `ended at ${Math.round((s.context.used / s.context.window) * 100)}% full` : undefined} />
       </div>
       {m.plan || m.topTools.length ? (
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-3 text-[12.5px] text-fog">

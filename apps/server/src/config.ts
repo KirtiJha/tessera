@@ -57,6 +57,16 @@ export const config = {
   /** Overridable for tests and for proxies that front these APIs. */
   slackApiUrl: (process.env.SLACK_API_URL ?? "https://slack.com/api").replace(/\/+$/, ""),
   pagerdutyEventsUrl: process.env.PAGERDUTY_EVENTS_URL ?? "https://events.pagerduty.com/v2/enqueue",
+  /**
+   * "Explain this failure": a key for the Claude API (a secret: set it in the
+   * platform's secret store), the model, and the endpoint (overridable for a
+   * gateway or for tests). Without a key the feature stays off.
+   */
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  anthropicApiUrl: (process.env.ANTHROPIC_API_URL ?? "https://api.anthropic.com").replace(/\/+$/, ""),
+  explainModel: process.env.EXPLAIN_MODEL ?? "claude-haiku-5-5",
+  /** Most explanations one organisation can ask for in an hour. */
+  explainPerHour: int("EXPLAIN_PER_HOUR", 60),
 } as const;
 
 if (!config.databaseUrl) throw new Error("DATABASE_URL is required");

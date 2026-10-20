@@ -117,3 +117,26 @@ test("an ended session opens with a card that says how it went", async ({ page }
   await card.getByRole("button", { name: "Replay from the start" }).click();
   await expect(page).toHaveURL(/tab=replay&t=0/);
 });
+
+test("the numbers say how they are worked out, by keyboard and by tap", async ({ page }) => {
+  await page.goto(`/app/sessions/${run}-ended`);
+  const help = page.getByRole("button", { name: "How est. cost is worked out" });
+  await help.focus();
+  await expect(page.getByRole("tooltip")).toContainText("model prices");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toBeHidden();
+  await help.click();
+  await expect(page.getByRole("tooltip")).toContainText("An estimate");
+  await page.locator("body").click({ position: { x: 5, y: 500 } });
+  await expect(page.getByRole("tooltip")).toBeHidden();
+});
+
+test("explaining failures cannot be turned on without a Claude API key on the server", async ({ page }) => {
+  await page.goto("/app/data");
+  await expect(page.getByText("Needs a Claude API key on the server (ANTHROPIC_API_KEY).", { exact: false })).toBeVisible();
+  // No "Explain this failure" anywhere while it is off.
+  await page.goto(`/app/sessions/${run}-replay`);
+  await expect(page.getByRole("heading", { name: "Flaky refunds" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explain this failure" })).toHaveCount(0);
+});
+

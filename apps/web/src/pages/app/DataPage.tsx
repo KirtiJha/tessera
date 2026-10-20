@@ -6,6 +6,7 @@ import { ago, fmtDate } from "../../lib/format";
 
 interface Settings {
   excerpts: boolean;
+  explainFailures: boolean;
   dlp: { emails: boolean; cards: boolean; nationalIds: boolean; ibans: boolean; terms: string[] };
   retainSamplesDays: number | null;
   retainEventsDays: number | null;
@@ -16,6 +17,8 @@ interface Data {
   canEdit: boolean;
   settings: Settings;
   defaults: { retainSamplesDays: number; retainEventsDays: number; retainSessionsDays: number };
+  /** The server has a Claude API key, so failures can be explained once an owner allows it. */
+  explainAvailable?: boolean;
   stored: { sessions: number; events: number; audit: number; oldest: string | null };
   stream: { host: string; headerName: string | null; format: string; enabled: boolean; lastSentAt: string | null; lastError: string | null; pending: number } | null;
 }
@@ -99,6 +102,7 @@ export function DataPage() {
       <Panel title="What Tessera keeps" className="mt-5">
         <div className="space-y-4">
           <Toggle disabled={ro} checked={!s.excerpts} onChange={(v) => setS({ ...s, excerpts: !v })} title="Metadata only" body="Drop prompt text, agent task and answer excerpts, and session names taken from prompts before they are stored, and collect no diffs from engineers' machines. Tool prompts waiting on a person are kept so they can be answered." />
+          <Toggle disabled={ro || !d!.explainAvailable || !s.excerpts} checked={s.explainFailures && s.excerpts} onChange={(v) => setS({ ...s, explainFailures: v })} title="Explain failures with Claude" body={d!.explainAvailable ? "Offer \"Explain this failure\" on failed tool calls and agents. The failure's error output, already redacted on the engineer's machine and with the removals below applied, is sent to the Claude API, which answers in three lines. Off by default; each use is in the audit log." : "Needs a Claude API key on the server (ANTHROPIC_API_KEY). Ask whoever runs Tessera to set it; then an owner can turn this on."} />
           <div>
             <div className="mb-2 text-[13px] font-medium text-mist">Remove before storing</div>
             <div className="grid gap-3 sm:grid-cols-2">

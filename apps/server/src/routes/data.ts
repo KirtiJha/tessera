@@ -51,6 +51,8 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
       canEdit: p.role === "owner",
       settings: s,
       defaults: { retainSamplesDays: config.retainSamplesDays, retainEventsDays: config.retainEventsDays, retainSessionsDays: config.retainSessionsDays },
+      /** Whether this server has a Claude API key, without which "explain this failure" cannot be turned on. */
+      explainAvailable: !!config.anthropicApiKey,
       stored: counts.rows[0],
       // The URL can carry a secret (a signed query string, user:pass@); only its host leaves the server.
       stream: st ? { host: new URL(decrypt(st.url_enc)).host, headerName: st.header_name, format: st.format, enabled: st.enabled, lastSentAt: st.last_sent_at, lastError: st.last_error, pending } : null,
@@ -63,7 +65,7 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
     const body = DataSettingsSchema.omit({ legalHold: true }).parse(req.body);
     const next = { ...body, legalHold: cur.legalHold };
     await saveDataSettings(p.orgId, next);
-    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "data.settings", detail: { excerpts: next.excerpts, dlp: { ...next.dlp, terms: next.dlp.terms.length }, retainSamplesDays: next.retainSamplesDays, retainEventsDays: next.retainEventsDays, retainSessionsDays: next.retainSessionsDays }, ip: req.ip });
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "data.settings", detail: { excerpts: next.excerpts, explainFailures: next.explainFailures, dlp: { ...next.dlp, terms: next.dlp.terms.length }, retainSamplesDays: next.retainSamplesDays, retainEventsDays: next.retainEventsDays, retainSessionsDays: next.retainSessionsDays }, ip: req.ip });
     return { ok: true };
   });
 

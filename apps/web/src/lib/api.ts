@@ -9,11 +9,14 @@ export class ApiError extends Error {
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   // No content-type without a body: Fastify answers 400 to a DELETE that claims JSON and sends none.
+  const payload = body === undefined ? undefined : JSON.stringify(body);
   const res = await fetch(path, {
     method,
-    headers: { "x-tessera-client": "web", ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: { "x-tessera-client": "web", ...(payload === undefined ? {} : { "content-type": "application/json" }) },
+    body: payload,
     credentials: "same-origin",
+    // A change finishes even if the page is left or reloaded at once (away mode, then a reload). The browser caps such a body at 64 KB.
+    keepalive: method !== "GET" && (payload?.length ?? 0) < 60_000,
   });
   const text = await res.text();
   let data: unknown = null;

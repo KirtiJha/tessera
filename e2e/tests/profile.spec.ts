@@ -62,9 +62,9 @@ test("a team's page shows its members, its live sessions and its spend against t
   await expect.poll(async () => {
     await page.reload();
     await page.getByRole("heading", { name: "Payments", level: 1 }).waitFor();
-    return page.getByRole("link", { name: "Pia Profile" }).count();
+    // The member is listed from the start; their spend (and so the "new" chip) only once the rollup has run.
+    return page.getByText("new", { exact: true }).count();
   }, { timeout: 120_000, intervals: [5_000] }).toBeGreaterThan(0);
-  await expect(page.getByText("new").first()).toBeVisible();
   await page.getByRole("link", { name: "Pia Profile" }).click();
   await page.waitForURL(`**/app/people/${userId}`);
   await expect(page.getByRole("heading", { name: "Pia Profile", level: 1 })).toBeVisible();

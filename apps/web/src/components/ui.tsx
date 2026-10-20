@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronUp, ChevronsUpDown, X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, CircleHelp, X } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "amber";
@@ -427,5 +427,69 @@ export function TagInput({ value, onChange, placeholder, suggestions = [], mono 
       />
       {listId && suggestions.length ? <datalist id={listId}>{suggestions.map((s) => <option key={s} value={s} />)}</datalist> : null}
     </div>
+  );
+}
+
+/**
+ * How a number is worked out, behind a small "?" beside its label. Opens on
+ * hover, on focus and on a tap (phones have no hover), closes on Escape, on a
+ * tap elsewhere, when focus leaves and when the pointer moves away. Placed so
+ * it stays on screen.
+ */
+export function Hint({ label, children }: { label: string; children: ReactNode }) {
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+  const id = useId();
+  const W = 256;
+  // Drawn in a portal at a fixed place under the button, kept inside the window: a panel that clips its overflow cannot cut it off.
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - W / 2), window.innerWidth - W - 8);
+    setAt({ top: r.bottom + 6, left });
+  };
+  const hide = () => setAt(null);
+  useEffect(() => {
+    if (!at) return;
+    const away = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) hide();
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") hide();
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [at]);
+  return (
+    <span ref={ref} className="inline-flex align-middle" onMouseEnter={show} onMouseLeave={hide}>
+      <button
+        type="button"
+        aria-label={`How ${label} is worked out`}
+        aria-describedby={at ? id : undefined}
+        // A tap focuses the button (which opens it) and then clicks it: the click must not close it again.
+        onClick={show}
+        onFocus={show}
+        onBlur={hide}
+        className="ml-1 inline-flex rounded-full text-ash hover:text-mist focus:outline-none focus-visible:text-snow focus-visible:ring-1 focus-visible:ring-teal-400"
+      >
+        <CircleHelp size={12} aria-hidden="true" />
+      </button>
+      {at
+        ? createPortal(
+            <span role="tooltip" id={id} style={{ top: at.top, left: at.left, width: W }} className="pointer-events-none fixed z-[70] rounded-lg border border-line-2 bg-ink-2 p-2.5 text-left text-[12px] font-normal normal-case leading-snug tracking-normal text-mist shadow-xl">
+              {children}
+            </span>,
+            document.body,
+          )
+        : null}
+    </span>
   );
 }

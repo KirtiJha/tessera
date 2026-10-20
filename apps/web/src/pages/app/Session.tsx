@@ -11,10 +11,12 @@ import { AgentStrip, ContextBar, KIND, StateShape } from "../../components/Sessi
 import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
 import { FileDiffs } from "../../components/FileDiffs";
+import { HELP } from "../../lib/help";
+import { ExplainFailure } from "../../components/ExplainFailure";
 import { SessionSummary } from "../../components/SessionSummary";
 import { SessionTimeline } from "../../components/SessionTimeline";
 import { UsageBreakdown } from "../../components/UsageBreakdown";
-import { Button, Modal, Panel, Select, Spinner, Textarea, useToast } from "../../components/ui";
+import { Button, Modal, Panel, Select, Spinner, Textarea, useToast, Hint } from "../../components/ui";
 import { api, ApiError } from "../../lib/api";
 import { useMedia } from "../../lib/useMedia";
 import { messageHint, sessionKind, sessionLabel, useFleet } from "../../lib/fleet";
@@ -24,15 +26,17 @@ interface Detail {
   session: SessionView;
   live: boolean;
   canAct: boolean;
+  /** The organisation lets failures be explained by Claude, and this person may ask. */
+  canExplain?: boolean;
   events: EventView[];
   series: { ts: string; tokens: number; cost: number | null }[];
   asks: { id: string; kind: string; tool: string | null; prompt: string; options: string[]; createdAt: string; closedAt: string | null; outcome: string | null; answer: Record<string, unknown> | null; answeredBy: string | null }[];
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Stat({ label, value, sub, help }: { label: string; value: string; sub?: string; help?: string }) {
   return (
     <div className="min-w-0 bg-slate-1 px-4 py-3">
-      <div className="text-[11.5px] text-fog">{label}</div>
+      <div className="text-[11.5px] text-fog">{label}{help ? <Hint label={label.toLowerCase()}>{help}</Hint> : null}</div>
       <div className="mt-0.5 truncate text-[16px] font-semibold text-snow">{value}</div>
       {sub ? <div className="truncate text-[11px] text-fog" title={sub}>{sub}</div> : null}
     </div>
@@ -61,7 +65,7 @@ function AgentTree({ agents, selected, onSelect }: { agents: AgentView[]; select
   return <div className="space-y-0.5">{roots.map((a) => render(a, 0))}</div>;
 }
 
-function AgentDetail({ a }: { a: AgentView }) {
+function AgentDetail({ a, explainIn }: { a: AgentView; explainIn?: string }) {
   const tools = Object.entries(a.toolCalls).sort((x, y) => y[1] - x[1]);
   return (
     <div className="space-y-3 text-[13px]">
@@ -78,6 +82,7 @@ function AgentDetail({ a }: { a: AgentView }) {
           <div className="text-[12px] font-medium text-rose-400">Failed · {a.failure.class.replace("_", " ")}{a.failure.tool ? ` · ${a.failure.tool}` : ""}</div>
           <div className="mt-1 text-mist">{a.failure.summary}</div>
           {a.failure.outputTail.length ? <pre className="mt-2 max-h-40 overflow-auto rounded bg-ink p-2 font-mono text-[11.5px] text-fog">{a.failure.outputTail.join("\n")}</pre> : null}
+          {explainIn ? <ExplainFailure sessionId={explainIn} target={{ kind: "agent", id: a.id }} /> : null}
         </div>
       ) : null}
       {tools.length ? <div className="flex flex-wrap gap-1.5">{tools.map(([t, n]) => <span key={t} className="rounded-md border border-line-2 px-1.5 py-0.5 text-[11.5px] text-mist">{t} <span className="text-fog">×{n}</span></span>)}</div> : null}
@@ -379,9 +384,9 @@ export function SessionPage() {
         </div>
         <div className="mt-4 grid grid-cols-2 gap-px border-t border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Model" value={modelShort(s.model)} sub={s.effort ?? undefined} />
-          <Stat label="Est. cost" value={fmtUsd(s.costUsd, 4)} sub={s.unpricedModels.length ? `unpriced: ${s.unpricedModels.join(", ")}` : s.agents.length ? `incl. ${s.agents.length} agents` : "orchestrator only"} />
-          <Stat label="Tokens" value={fmtTokens(s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite)} sub={`${fmtTokens(s.tokens.cacheRead)} cache read`} />
-          <Stat label="Context" value={s.context ? `${Math.round((s.context.used / s.context.window) * 100)}%` : "—"} sub={s.blowouts ? `${s.blowouts} blowouts` : "no blowouts"} />
+          <Stat help={HELP.cost} label="Est. cost" value={fmtUsd(s.costUsd, 4)} sub={s.unpricedModels.length ? `unpriced: ${s.unpricedModels.join(", ")}` : s.agents.length ? `incl. ${s.agents.length} agents` : "orchestrator only"} />
+          <Stat help={HELP.tokens} label="Tokens" value={fmtTokens(s.tokens.input + s.tokens.output + s.tokens.cacheRead + s.tokens.cacheWrite)} sub={`${fmtTokens(s.tokens.cacheRead)} cache read`} />
+          <Stat help={HELP.context} label="Context" value={s.context ? `${Math.round((s.context.used / s.context.window) * 100)}%` : "—"} sub={s.blowouts ? `${s.blowouts} blowouts` : "no blowouts"} />
           <Stat label="Elapsed" value={fmtDuration(elapsed)} sub={`started ${fmtDate(s.startedAt)}`} />
           <Stat label="Agents" value={String(s.agents.filter((a) => a.kind !== "orchestrator").length)} sub={`${s.agents.filter((a) => a.status === "failed").length} failed`} />
         </div>
@@ -409,7 +414,7 @@ export function SessionPage() {
             {s.agents.length ? (
               <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
                 <AgentTree agents={s.agents} selected={agent} onSelect={setAgent} />
-                <div className="rounded-lg border border-line bg-ink-2 p-3">{selectedAgent ? <AgentDetail a={selectedAgent} /> : <p className="text-[13px] text-fog">Select an agent to see its tools, cost and any failure.</p>}</div>
+                <div className="rounded-lg border border-line bg-ink-2 p-3">{selectedAgent ? <AgentDetail a={selectedAgent} explainIn={detail.canExplain ? s.id : undefined} /> : <p className="text-[13px] text-fog">Select an agent to see its tools, cost and any failure.</p>}</div>
               </div>
             ) : (
               <div className="flex items-center gap-3 text-[13px] text-fog"><AgentStrip s={s} /></div>
@@ -425,7 +430,7 @@ export function SessionPage() {
           </Panel>
 
           <Panel title={s.activity.length ? `Activity · ${s.activity.filter((a) => a.status === "running").length ? "working now" : "last tool calls"}` : "Activity"}>
-            <ActionList actions={s.activity} agents={s.agents} now={now} limit={12} filterable />
+            <ActionList actions={s.activity} agents={s.agents} now={now} limit={12} filterable explainIn={detail.canExplain ? s.id : undefined} />
           </Panel>
 
           <Panel title={s.plan?.title ? `Plan · ${s.plan.title}` : "Plan"}>

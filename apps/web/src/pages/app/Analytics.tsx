@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarList, ColumnChart } from "../../components/ColumnChart";
 import { Heatmap } from "../../components/Heatmap";
 import { Link, useSearchParams } from "react-router-dom";
-import { Button, Empty, Field, Input, Panel, Select, useToast } from "../../components/ui";
+import { Button, Empty, Field, Hint, Input, Panel, Select, useToast } from "../../components/ui";
+import { HELP } from "../../lib/help";
 import { api, ApiError } from "../../lib/api";
 import { budgetOutlook, useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
 import { useAuth } from "../../lib/auth";
@@ -53,10 +54,10 @@ function preset(p: string): { from: string; to: string } {
 const PRESETS: [string, string][] = [["7", "7 days"], ["30", "30 days"], ["90", "90 days"], ["month", "This month"], ["last-month", "Last month"]];
 const shortDay = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 
-function Tile({ label, value, sub, delta }: { label: string; value: string; sub?: string; delta?: { text: string; good: boolean } | null }) {
+function Tile({ label, value, sub, delta, help }: { label: string; value: string; sub?: string; delta?: { text: string; good: boolean } | null; help?: string }) {
   return (
     <div className="rounded-xl border border-line bg-slate-1 px-4 py-3.5">
-      <div className="text-[12px] text-fog">{label}</div>
+      <div className="text-[12px] text-fog">{label}{help ? <Hint label={label.toLowerCase()}>{help}</Hint> : null}</div>
       <div className="mt-1 text-[24px] font-semibold tabular-nums tracking-tight text-snow">{value}</div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-fog">
         {delta ? <span className={delta.good ? "text-teal-300" : "text-amber-400"}>{delta.text}</span> : null}
@@ -215,10 +216,10 @@ export function Analytics() {
       {!data ? null : (
         <div className={`transition-opacity duration-200 ${loading ? "opacity-60" : ""}`}>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Tile label="Estimated spend" value={fmtUsd(t!.costUsd)} delta={change === null ? null : { text: `${change >= 0 ? "+" : "−"}${Math.abs(Math.round(change * 100))}%`, good: change <= 0 }} sub={change === null ? "no earlier period to compare" : `vs the ${data.range.days} days before`} />
-            <Tile label="Forecast this month" value={fmtUsd(data.forecast.projectedMonthUsd)} sub={`${fmtUsd(data.forecast.monthToDateUsd)} so far · ${fmtUsd(data.forecast.dailyRunRateUsd)}/day lately`} />
+            <Tile help={`${HELP.cost} ${HELP.change}`} label="Estimated spend" value={fmtUsd(t!.costUsd)} delta={change === null ? null : { text: `${change >= 0 ? "+" : "−"}${Math.abs(Math.round(change * 100))}%`, good: change <= 0 }} sub={change === null ? "no earlier period to compare" : `vs the ${data.range.days} days before`} />
+            <Tile help={HELP.forecast} label="Forecast this month" value={fmtUsd(data.forecast.projectedMonthUsd)} sub={`${fmtUsd(data.forecast.monthToDateUsd)} so far · ${fmtUsd(data.forecast.dailyRunRateUsd)}/day lately`} />
             <Tile label="Sessions" value={t!.sessions.toLocaleString()} sub={`${t!.people} ${t!.people === 1 ? "person" : "people"} · ${fmtTokens(t!.tokens)} tokens`} />
-            <Tile label="Prompts answered in Tessera" value={t!.asks ? `${Math.round((t!.answeredInTessera / t!.asks) * 100)}%` : "—"} sub={t!.asks ? `${t!.answeredInTessera} of ${t!.asks}${t!.answeredInSlack ? `, ${t!.answeredInSlack} from Slack` : ""}${t!.meanWaitMs !== null ? ` · mean wait ${fmtDuration(t!.meanWaitMs)}` : ""}` : "no prompts in this range"} />
+            <Tile help={HELP.answeredHere} label="Prompts answered in Tessera" value={t!.asks ? `${Math.round((t!.answeredInTessera / t!.asks) * 100)}%` : "—"} sub={t!.asks ? `${t!.answeredInTessera} of ${t!.asks}${t!.answeredInSlack ? `, ${t!.answeredInSlack} from Slack` : ""}${t!.meanWaitMs !== null ? ` · mean wait ${fmtDuration(t!.meanWaitMs)}` : ""}` : "no prompts in this range"} />
           </div>
 
           <BudgetOutlook budgets={team ? budgets.filter((b) => b.scopeType !== "team" || b.scopeId === team) : budgets} isAdmin={isAdmin} />
@@ -299,7 +300,7 @@ export function Analytics() {
             <div className="mt-4"><Empty title="No spend in this range" body="Spend appears as sessions report. Try a longer range, or another team." /></div>
           ) : (
             <>
-              <Panel title="Spend per day" className="mt-4">
+              <Panel title={<>Spend per day<Hint label="spend per day">{HELP.spendDays}</Hint></>} className="mt-4">
                 <ColumnChart
                   ariaLabel="Estimated spend per day"
                   data={data.daily.map((d) => ({ key: d.day, label: shortDay(d.day), value: d.costUsd, flagged: d.anomaly, detail: `${d.sessions} session${d.sessions === 1 ? "" : "s"}` }))}
@@ -308,7 +309,7 @@ export function Analytics() {
                 {data.daily.some((d) => d.anomaly) ? <p className="mt-2 text-[12px] text-fog">Marked days spent more than three standard deviations above the two weeks before them.</p> : null}
               </Panel>
               <div className="mt-4 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-                <Panel title={`By ${groupLabel(groupBy).toLowerCase()}`} action={<span className="text-[11.5px] text-fog">change on the {data.range.days} days before</span>}>
+                <Panel title={`By ${groupLabel(groupBy).toLowerCase()}`} action={<span className="text-[11.5px] text-fog">change on the {data.range.days} days before<Hint label="the change">{HELP.change}</Hint></span>}>
                   <BarList
                     sub={`Spend by ${groupLabel(groupBy).toLowerCase()}`}
                     total={t!.costUsd}

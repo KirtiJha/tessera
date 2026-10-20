@@ -6,6 +6,8 @@ import { pool } from "../db/pool.js";
 export const DataSettingsSchema = z.object({
   /** Keep prompt and answer text (excerpts). Off is metadata-only. */
   excerpts: z.boolean().default(true),
+  /** Let people ask Claude to explain a failed tool call: sends its redacted error output to the Claude API. Off unless an owner turns it on. */
+  explainFailures: z.boolean().default(false),
   dlp: z
     .object({
       emails: z.boolean().default(false),

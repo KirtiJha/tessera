@@ -2,6 +2,7 @@ import type { Action, AgentView, AskDetail, RiskFlag } from "@tessera/contract";
 import { AlertTriangle, Check, ChevronDown, Loader2, ShieldAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ago, fmtTime } from "../lib/format";
+import { ExplainFailure } from "./ExplainFailure";
 
 /** A flag an approver should see before deciding, coloured by how much it matters. */
 export function RiskChips({ flags, compact = false }: { flags: RiskFlag[]; compact?: boolean }) {
@@ -133,7 +134,8 @@ type ActionFilter = "all" | "failed" | "running";
  * The last tool calls, newest first, so an approver sees what led to the prompt and a watcher sees what is happening.
  * A row opens to the whole call: tool, agent, when, how long, and the full summary and error.
  */
-export function ActionList({ actions, agents = [], now, limit, title, filterable = false }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean }) {
+/** `explainIn`: the session id, where failures can be explained by Claude (the organisation turned it on). */
+export function ActionList({ actions, agents = [], now, limit, title, filterable = false, explainIn }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean; explainIn?: string }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [all, setAll] = useState(false);
   const [filter, setFilter] = useState<ActionFilter>("all");
@@ -211,6 +213,7 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
                         <dd className="whitespace-pre-wrap break-words font-mono text-rose-400">{a.error}</dd>
                       </>
                     ) : null}
+                    {explainIn && a.status === "failed" ? <dd className="col-span-2"><ExplainFailure sessionId={explainIn} target={{ kind: "action", id: a.id }} /></dd> : null}
                   </dl>
                 ) : null}
               </li>

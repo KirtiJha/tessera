@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { BarList, Change, ColumnChart } from "../../components/ColumnChart";
 import { SessionCard } from "../../components/SessionCard";
-import { Empty, Panel, Segmented, Spinner } from "../../components/ui";
+import { Empty, Hint, Panel, Segmented, Spinner } from "../../components/ui";
+import { HELP } from "../../lib/help";
 import { api, ApiError } from "../../lib/api";
 import { sessionKind, useSessions } from "../../lib/fleet";
 import { fmtDate, fmtDuration, fmtTokens, fmtUsd } from "../../lib/format";
@@ -24,10 +25,10 @@ interface Profile {
 const shortDay = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 const ms = (v: number | null) => (v === null ? "—" : fmtDuration(v));
 
-function Fact({ label, value, children }: { label: string; value: string; children?: ReactNode }) {
+function Fact({ label, value, children, help }: { label: string; value: string; children?: ReactNode; help?: string }) {
   return (
     <div className="rounded-xl border border-line bg-slate-1 px-4 py-3.5">
-      <div className="text-[12px] text-fog">{label}</div>
+      <div className="text-[12px] text-fog">{label}{help ? <Hint label={label.toLowerCase()}>{help}</Hint> : null}</div>
       <div className="mt-1 text-[22px] font-semibold tabular-nums tracking-tight text-snow">{value}</div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-fog">{children}</div>
     </div>
@@ -85,16 +86,16 @@ export function ProfilePage({ kind }: { kind: "person" | "team" }) {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Fact label={`Spend, last ${data.range.days} days`} value={fmtUsd(t.costUsd)}>
+        <Fact help={`${HELP.cost} ${HELP.change}`} label={`Spend, last ${data.range.days} days`} value={fmtUsd(t.costUsd)}>
           <Change now={t.costUsd} before={t.prevCostUsd} /> <span>vs {fmtUsd(t.prevCostUsd)} before</span>
         </Fact>
         <Fact label="Sessions" value={String(t.sessions)}>
           <Change now={t.sessions} before={t.prevSessions} /> <span>{fmtTokens(t.tokens)} tokens</span>
         </Fact>
-        <Fact label={s.kind === "person" ? "Their prompts waited" : "Prompts waited"} value={ms(data.prompts.waited.p50Ms)}>
+        <Fact help={HELP.waited} label={s.kind === "person" ? "Their prompts waited" : "Prompts waited"} value={ms(data.prompts.waited.p50Ms)}>
           <span>median, of {data.prompts.waited.count}</span>
         </Fact>
-        <Fact label={s.kind === "person" ? "They answered" : "Members answered"} value={String(data.prompts.answered.count)}>
+        <Fact help={HELP.answered} label={s.kind === "person" ? "They answered" : "Members answered"} value={String(data.prompts.answered.count)}>
           <span>{data.prompts.answered.count ? `median ${ms(data.prompts.answered.p50Ms)} to answer` : "prompts in Tessera"}</span>
         </Fact>
       </div>
@@ -112,7 +113,7 @@ export function ProfilePage({ kind }: { kind: "person" | "team" }) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {data.members ? (
-          <Panel title={`Members · ${data.members.length}`} action={<span className="text-[11.5px] text-fog">change on the {data.range.days} days before</span>}>
+          <Panel title={`Members · ${data.members.length}`} action={<span className="text-[11.5px] text-fog">change on the {data.range.days} days before<Hint label="the change">{HELP.change}</Hint></span>}>
             {data.members.length ? (
               <BarList sub="Spend by member" total={t.costUsd} format={(n) => fmtUsd(n)} rows={data.members.map((m) => ({ key: m.name, value: m.costUsd, prev: m.prevCostUsd, sub: `${m.sessions} sess.`, href: `/app/people/${m.id}` }))} />
             ) : <p className="text-[13px] text-fog">Nobody is in this team yet.</p>}

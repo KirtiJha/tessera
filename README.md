@@ -102,7 +102,7 @@ Tessera never connects to an engineer's machine. The reporter posts snapshots an
 - **Stop** refuses the session's next tool call and ends its turn (`continue: false`), handing control back to the engineer. It applies once.
 - **Hand over** gives a colleague the session for a while: they are told when it waits, and can answer, stop or pause it.
 
-Every session has a **Replay** tab: a scrubber over its whole run with cost, prompts waiting on people, agents, failures and policy decisions laid on it, and the session's state at the playhead. The playhead is in the URL (`?tab=replay&t=754`, seconds from the start), so **Copy link** shares a moment, and a click on a failure, a prompt, a policy denial or a compaction on the overview's timeline opens the replay there. The timeline also draws how full the **context window** was minute by minute, with the 80% and 90% lines and each compaction. An ended session opens with a **summary card**: how it ended and after how long, what it left behind (files changed, commits to push), cost and cache share, agents and failures, time spent waiting on people, plan progress and the most used tools. **Files changed** opens each file to its diff, fetched from the machine when asked (see what leaves the machine, above). **Compare** puts two sessions side by side (cost, time, tokens, agents, failures, waits, tool calls); pick two in History or start from a session.
+Every figure with a **?** beside it says how it is worked out (cost, tokens, context, cache share, waits, the change on the period before), on hover, keyboard focus or a tap. Every session has a **Replay** tab: a scrubber over its whole run with cost, prompts waiting on people, agents, failures and policy decisions laid on it, and the session's state at the playhead. The playhead is in the URL (`?tab=replay&t=754`, seconds from the start), so **Copy link** shares a moment, and a click on a failure, a prompt, a policy denial or a compaction on the overview's timeline opens the replay there. The timeline also draws how full the **context window** was minute by minute, with the 80% and 90% lines and each compaction. An ended session opens with a **summary card**: how it ended and after how long, what it left behind (files changed, commits to push), cost and cache share, agents and failures, time spent waiting on people, plan progress and the most used tools. **Files changed** opens each file to its diff, fetched from the machine when asked (see what leaves the machine, above). **Compare** puts two sessions side by side (cost, time, tokens, agents, failures, waits, tool calls); pick two in History or start from a session.
 
 Only the session's owner, an approver on their team, or an admin can act; every action is written to the audit log.
 
@@ -206,6 +206,7 @@ Under **Data and compliance**, owners decide what Tessera keeps:
 - **Legal hold** stops all pruning and erasure until it is released.
 - **Audit export** as JSON lines or CSV, and **streaming** to Splunk (HEC), Datadog or any NDJSON endpoint within about 15 seconds, in order, retried from where a failure stopped.
 - **A person's data**: export everything Tessera keeps about someone, or erase it. Their sessions, devices and keys are deleted, and their name and email are replaced; the audit log keeps its entries.
+- **Explain failures with Claude** (off by default, and only offered once the server has `ANTHROPIC_API_KEY`): a failed tool call or agent gets **Explain this failure**, which sends that failure's error output (already redacted on the machine, with your removals above applied again), the calls just before it and the repository name to the Claude API, and shows a three-line answer: what failed, the likely cause, what to try. Only people who can act on the session may ask; an answer is kept a day so asking twice costs once; each organisation may ask `EXPLAIN_PER_HOUR` times an hour (60); every request is audited (`session.explain`). Nothing else is ever sent to a model, and metadata-only organisations cannot turn it on.
 
 ## Roles
 
@@ -219,7 +220,7 @@ Under **Data and compliance**, owners decide what Tessera keeps:
 
 ## Configuration
 
-See [`.env.example`](.env.example). `DATABASE_URL` and (in production) `SECRET_KEY` are required. `REDIS_URL` turns on fan-out across replicas. `PUBLIC_URL` and `ALLOWED_HOSTS` decide which `Host` headers the server accepts in production.
+See [`.env.example`](.env.example). `DATABASE_URL` and (in production) `SECRET_KEY` are required. `REDIS_URL` turns on fan-out across replicas. `PUBLIC_URL` and `ALLOWED_HOSTS` decide which `Host` headers the server accepts in production. `ANTHROPIC_API_KEY` (a secret, set it in your platform's secret store), `EXPLAIN_MODEL` (`claude-haiku-5-5`) and `ANTHROPIC_API_URL` (for a gateway) enable **Explain this failure**.
 
 ## Performance
 

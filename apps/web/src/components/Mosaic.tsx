@@ -64,7 +64,8 @@ export function Mosaic({ cols = 12, rows = 7 }: { cols?: number; rows?: number }
         animate={notice ? { opacity: 1, y: 0, scale: 1 } : {}}
         transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
         className="absolute rounded-xl border border-amber-400/60 bg-ink-2 px-4 py-3 text-left text-snow shadow-[0_24px_48px_-24px_rgba(0,0,0,0.6)]"
-        style={{ left: `${((waitingTile % cols) / cols) * 100 + 100 / cols + 1.5}%`, top: `${(Math.floor(waitingTile / cols) / rows) * 100 - 6}%`, minWidth: 220 }}
+        // Beside the waiting tile, but never past the mosaic's right edge (a phone is narrower than the card's natural place).
+        style={{ left: `min(${((waitingTile % cols) / cols) * 100 + 100 / cols + 1.5}%, calc(100% - 228px))`, top: `${(Math.floor(waitingTile / cols) / rows) * 100 - 6}%`, minWidth: 220 }}
       >
         <div className="flex items-center gap-2 text-[11px] font-medium text-amber-400">
           <span className="inline-block h-2 w-2 rounded-sm bg-amber-400" />

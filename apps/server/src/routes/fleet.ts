@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { audit } from "../audit.js";
-import { atLeast, canActOn, canManageOrg, type Role } from "../auth/rbac.js";
+import { atLeast, canActOn, canManageOrg, type Principal, type Role } from "../auth/rbac.js";
+import type { SessionRecord } from "../fleet/types.js";
 import { answerAsk } from "../fleet/actions.js";
 import { checkMutation, requireUser } from "../auth/session.js";
 import { pool } from "../db/pool.js";
@@ -10,6 +11,7 @@ import { priceTableFor } from "../fleet/pricing.js";
 import { deriveSession } from "../fleet/derive.js";
 import { dataSettingsFor } from "../fleet/datasettings.js";
 import { diffView, pendingRequest, requestDiff } from "../fleet/diffs.js";
+import { ExplainError, explainFailure } from "../fleet/explain.js";
 import { randomUUID } from "node:crypto";
 import * as store from "../fleet/store.js";
 import { openStream, type StreamHub } from "../fleet/stream.js";
@@ -69,6 +71,8 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
       session: view,
       live: fleet.get(p.orgId, id) !== undefined,
       canAct: canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id }),
+      // Explaining a failure sends it to the Claude API: only where the organisation chose that and the server has a key.
+      canExplain: await explainAllowed(p, rec),
       events,
       series: series.rows.map((r) => ({ ts: r.ts, tokens: r.tokens_delta, cost: r.cost_usd })),
       asks: asks.rows.map((a) => ({
@@ -247,6 +251,36 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
       .parse(req.body);
     const r = await answerAsk(fleet, req.principal!, id, body, "console", { ip: req.ip, log: req.log });
     return { ok: true, deliveryId: r.deliveryId };
+  });
+
+  /** Can this person ask for a failure in this session to be explained? */
+  async function explainAllowed(p: Principal, rec: SessionRecord): Promise<boolean> {
+    if (!config.anthropicApiKey || !canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id })) return false;
+    const d = await dataSettingsFor(rec.orgId);
+    return d.explainFailures && d.excerpts;
+  }
+
+  /**
+   * A short explanation of a failed tool call or a failed agent, by Claude,
+   * from the redacted text the reporter sent. Opt-in per organisation.
+   */
+  app.post("/sessions/:id/explain", async (req, reply) => {
+    const p = req.principal!;
+    const { id } = req.params as { id: string };
+    const body = z.object({ kind: z.enum(["agent", "action"]), id: z.string().min(1).max(200) }).parse(req.body);
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    if (!canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id })) return reply.code(403).send({ error: "Only the session's owner, an approver on their team or an admin can ask for an explanation." });
+    const d = await dataSettingsFor(p.orgId);
+    if (!d.explainFailures || !d.excerpts) return reply.code(403).send({ error: "Explaining failures is turned off for your organisation. An owner can turn it on under Data and compliance." });
+    try {
+      const e = await explainFailure(rec, body, d.dlp);
+      if (!e.cached) await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "session.explain", targetType: "session", targetId: id, detail: { target: body.kind, model: e.model }, ip: req.ip });
+      return e;
+    } catch (err) {
+      if (err instanceof ExplainError) return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
   });
 
   /**
