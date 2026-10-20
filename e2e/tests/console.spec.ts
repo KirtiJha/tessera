@@ -181,7 +181,7 @@ test("the bell lists what needs a person, and ⌘K reaches a session, a page and
   await expect(menu).toContainText("Waiting on someone");
   await expect(menu).toContainText("Ledger reconciliation · Has a question");
   await expect(menu).toContainText("Which ledger should be authoritative?");
-  await menu.getByRole("menuitem", { name: /Ledger reconciliation/ }).click();
+  await menu.getByRole("menuitem", { name: /^Ledger reconciliation/ }).click();
   await page.waitForURL(`**/app/sessions/${waitingId}`);
 
   // ⌘K (Ctrl+K here) finds the live session by name and opens it on Enter.
@@ -368,4 +368,54 @@ test("the wall flags a session that needs a look, groups by repo, goes compact, 
   await expect(page.getByRole("listbox").getByRole("option", { name: /Needs a look, by repo/ })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Reset" }).click();
+});
+
+test("an approval shows its context and history, the bell snoozes, the palette acts on the session, and a phone answers from a sheet", async () => {
+  // Three earlier allows of the same program, then a fourth prompt: the card says so and offers a team rule.
+  const ownerPast = `${sessionId}-past`;
+  for (let i = 0; i < 3; i++) {
+    const askId = `past-${i}`;
+    const r = await report(page.request, { id: `${ownerPast}-${i}`, name: `Past deploy ${i}`, status: "waiting", waitReason: "permission", plan: { title: "Ship refunds", source: "todo", steps: [{ id: "s1", title: "Write tests", status: "completed", ownerAgentId: null }, { id: "s2", title: "Deploy to staging", status: "in_progress", ownerAgentId: null }] }, openAsk: { id: askId, kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "Bash(./deploy.sh staging)", options: [], detail: { command: "./deploy.sh staging" } } });
+    expect(r.ok()).toBeTruthy();
+    const a = await page.request.post(`/api/fleet/sessions/${ownerPast}-${i}/answer`, { headers: W, data: { askId, decision: "allow" } });
+    expect(a.ok()).toBeTruthy();
+  }
+  const nowId = `${sessionId}-now`;
+  const r = await report(page.request, { id: nowId, name: "Deploy again", status: "waiting", waitReason: "permission", filesChanged: [{ path: "deploy/staging.yml", status: "modified", added: 12, removed: 2 }], plan: { title: "Ship refunds", source: "todo", steps: [{ id: "s1", title: "Write tests", status: "completed", ownerAgentId: null }, { id: "s2", title: "Deploy to staging", status: "in_progress", ownerAgentId: null }] }, openAsk: { id: "now-ask", kind: "permission", createdAt: new Date().toISOString(), tool: "Bash", prompt: "Bash(./deploy.sh staging)", options: [], detail: { command: "./deploy.sh staging" } } });
+  expect(r.ok()).toBeTruthy();
+  await page.goto(`/app/sessions/${nowId}`);
+  const ctx = page.getByTestId("decision-context");
+  await expect(ctx).toContainText("step 2 of 2: Deploy to staging");
+  await expect(ctx).toContainText("staging.yml");
+  await expect(ctx).toContainText(/allowed 3×/);
+  // Repeated approvals point at the rules Policies suggests.
+  await ctx.getByRole("link", { name: "See suggested rules" }).click();
+  await page.waitForURL("**/app/policies");
+
+  // The palette acts on the session in front of you.
+  await page.goto(`/app/sessions/${nowId}`);
+  await expect(page.getByRole("button", { name: "Open search" })).toBeVisible();
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Search" }).fill("pause");
+  await page.getByRole("listbox").getByRole("option", { name: /Pause Deploy again/ }).click();
+  await expect(page.getByText(/Deploy again: paused/)).toBeVisible();
+
+  // The bell snoozes an item: it leaves the list and the count.
+  await page.goto("/app");
+  const bell = page.getByRole("button", { name: /items? needs? attention/ });
+  const before = Number((await bell.getAttribute("aria-label"))!.match(/^(\d+)/)![1]);
+  await bell.click();
+  await page.getByRole("menuitem", { name: /Snooze "Deploy again/ }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: new RegExp(`^${before - 1} item`) })).toBeVisible();
+
+  // On a phone, the prompt can be answered from a sheet at the bottom.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/app/sessions/${nowId}`);
+  const sheet = page.getByRole("region", { name: "Answer from here" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toContainText("./deploy.sh staging");
+  await sheet.getByRole("button", { name: "Allow once" }).click();
+  await expect(page.getByText(/session will continue/i)).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
 });

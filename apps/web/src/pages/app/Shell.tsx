@@ -6,7 +6,9 @@ import { AttentionBell } from "../../components/AttentionBell";
 import { CommandPalette } from "../../components/CommandPalette";
 import { Mark, Wordmark } from "../../components/Logo";
 import { ThemePicker, useNavWidth } from "../../components/Prefs";
+import { SessionActions } from "../../components/SessionActions";
 import { Shortcuts } from "../../components/Shortcuts";
+import { requestSessionAction, useSessionActionRequest } from "../../lib/focus";
 import { Menu, MenuHeading, MenuItem, MenuSeparator, Tooltip } from "../../components/ui";
 import { useAuth } from "../../lib/auth";
 import { FleetProvider, sessionKind, useFleet, useSessions } from "../../lib/fleet";
@@ -168,6 +170,7 @@ export function Shell() {
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
   const [wallMode, setWallMode] = useState(false);
+  const actionRequest = useSessionActionRequest();
   const [width, setWidth] = useNavWidth();
   const rail = width === "rail";
   const { pathname } = useLocation();
@@ -201,6 +204,7 @@ export function Shell() {
           {wallMode ? null : <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} now={now} />}
           <CommandPalette open={palette} onClose={() => setPalette(false)} />
           <Shortcuts open={help} onClose={() => setHelp(false)} />
+          <SessionActions action={actionRequest} onDone={() => requestSessionAction(null)} />
           <AnimatePresence>
             {menu ? (
               <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">

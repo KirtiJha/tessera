@@ -77,7 +77,8 @@ test("the console works on a phone", async ({ page }) => {
 
   // The session page: the prompt and its buttons are on the first screen.
   await page.goto(`/app/sessions/${sessionId}`);
-  const allow = page.getByRole("button", { name: "Allow once" });
+  // On a phone the prompt is answered from the sheet pinned to the bottom of the screen.
+  const allow = page.getByRole("region", { name: "Answer from here" }).getByRole("button", { name: "Allow once" });
   await expect(allow).toBeInViewport();
   await fitsTheScreen(page);
   await allow.click();

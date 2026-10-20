@@ -11,6 +11,7 @@ import { useDensity } from "../../components/Prefs";
 import { api, ApiError } from "../../lib/api";
 import { useBudgetStatuses, type BudgetStatus } from "../../lib/attention";
 import { useAuth } from "../../lib/auth";
+import { requestSessionAction, setFocusedSession } from "../../lib/focus";
 import { healthFlags, healthLevel, medianCost, ticketOf, type HealthFlag } from "../../lib/health";
 import { usePref } from "../../lib/prefs";
 import { FirstRun } from "../../components/FirstRun";
@@ -226,6 +227,13 @@ export function Wall() {
     });
   }, [filtered, focusId]);
 
+  // The palette and the shell act on the focused card.
+  useEffect(() => {
+    const f = focusId ? byId.get(focusId) : undefined;
+    setFocusedSession(f ? { id: f.id, label: sessionLabel(f) } : null);
+    return () => setFocusedSession(null);
+  }, [focusId, byId]);
+
   // Keep the focused card in view on the virtualized wall.
   useEffect(() => {
     if (!focusId) return;
@@ -299,6 +307,14 @@ export function Wall() {
         case "d":
           if (focusId) void answerFocused(focusId, e.key === "a");
           break;
+        case "h":
+        case "m":
+        case "p": {
+          const f = focusId ? byId.get(focusId) : undefined;
+          if (!f) break;
+          requestSessionAction({ kind: e.key === "h" ? "handover" : e.key === "m" ? "message" : f.tags.paused ? "resume" : "pause", id: f.id, label: sessionLabel(f) });
+          break;
+        }
         case "Escape":
           if (selected.size) setSelected(new Set());
           else setFocusId(null);
@@ -307,7 +323,7 @@ export function Wall() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, focusId, selected.size, nav, toggleSelect, answerFocused]);
+  }, [rows, focusId, selected.size, nav, toggleSelect, answerFocused, byId]);
 
   /** Try each selected session; the server says per session whether this person may. Failures stay selected. */
   const runBulk = async (verb: string, past: string, fn: (id: string) => Promise<unknown>) => {

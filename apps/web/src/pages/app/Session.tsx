@@ -4,6 +4,9 @@ import { ArrowLeft, Hand, OctagonX, Pause, Play, Send, Trash2 } from "lucide-rea
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ActionList, AllowMenu, AskSubstance, RiskChips } from "../../components/Approval";
+import { DecisionContext } from "../../components/DecisionContext";
+import { setFocusedSession } from "../../lib/focus";
+import { createPortal } from "react-dom";
 import { AgentStrip, ContextBar, KIND, StateShape } from "../../components/SessionCard";
 import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
@@ -117,6 +120,13 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
   useEffect(() => {
     if (handOpen && !people.length) void api.get<{ people: typeof people }>("/api/fleet/people").then((r) => setPeople(r.people));
   }, [handOpen, people.length]);
+  // The palette and the shell act on "the session I am looking at".
+  const label = sessionLabel(s);
+  useEffect(() => {
+    setFocusedSession({ id: s.id, label });
+    return () => setFocusedSession(null);
+  }, [s.id, label]);
+  const phone = useMedia("(max-width: 640px)");
 
   const act = async (label: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(label);
@@ -138,6 +148,20 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
 
   return (
     <div className="space-y-4">
+      {phone && ask && ask.kind !== "question"
+        ? createPortal(
+            <div role="region" aria-label="Answer from here" className="fixed inset-x-0 bottom-0 z-40 border-t border-amber-400/40 bg-ink-2/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 shadow-2xl backdrop-blur">
+              <div className="truncate font-mono text-[12px] text-snow">{ask.tool ? `${ask.tool} · ` : ""}{detail?.command ?? ask.prompt}</div>
+              {risk.length ? <div className="mt-1.5"><RiskChips flags={risk} compact /></div> : null}
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" variant="primary" className="flex-1" loading={busy === (ask.kind === "plan" ? "approve" : "allow")} onClick={() => answer(ask.kind === "plan" ? "approve" : "allow")}>{ask.kind === "plan" ? "Approve" : "Allow once"}</Button>
+                <Button size="sm" variant="danger" className="flex-1" loading={busy === (ask.kind === "plan" ? "reject" : "deny")} onClick={() => answer(ask.kind === "plan" ? "reject" : "deny")}>{ask.kind === "plan" ? "Send back" : "Deny"}</Button>
+                <Button size="sm" onClick={() => document.getElementById("respond-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Details</Button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       <AnimatePresence mode="wait">
         {ask ? (
           <motion.div key={ask.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-3.5">
@@ -148,6 +172,7 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
               </div>
             ) : null}
             {risk.length ? <div className="mt-2"><RiskChips flags={risk} /></div> : null}
+            <DecisionContext sessionId={s.id} askId={ask.id} tool={ask.tool} kind={ask.kind} now={now} />
             {detail && ask.kind === "permission" && (detail.command || detail.edits.length || detail.write || detail.url || detail.paths.length) ? (
               <div className="mt-2.5"><AskSubstance detail={detail} tool={ask.tool} /></div>
             ) : ask.kind !== "question" || !questions.length ? (
@@ -306,7 +331,7 @@ export function SessionPage() {
         ) : null
       }
     >
-      <Respond s={s} canAct={detail.canAct && detail.live} onDone={load} now={now} />
+      <div id="respond-panel" className="scroll-mt-16"><Respond s={s} canAct={detail.canAct && detail.live} onDone={load} now={now} /></div>
     </Panel>
   );
 

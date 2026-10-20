@@ -182,6 +182,51 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     return { p, rec };
   }
 
+  /**
+   * What an approver wants beside the prompt itself: the plan step under way,
+   * the files touched so far, the latest failures, and how this kind of call
+   * has been decided before (same tool and program, this owner's sessions,
+   * last 30 days). The history is what turns a repeated approval into a rule.
+   */
+  app.get("/sessions/:id/decision", async (req, reply) => {
+    const p = req.principal!;
+    const { id } = req.params as { id: string };
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    const ask = rec.openAsk;
+    const tool = ask?.tool ?? null;
+    const command = ask?.detail?.command ?? (ask && tool && ask.prompt.startsWith(`${tool}(`) ? ask.prompt.slice(tool.length + 1, -1) : null);
+    const program = command ? (command.trim().split(/\s+/)[0] ?? "").slice(0, 60) : null;
+    const step = rec.plan?.steps.find((x) => x.status === "in_progress") ?? null;
+    const failures = (rec.activity ?? []).filter((a) => a.status === "failed").slice(-3).reverse();
+    let history: { allowed: number; denied: number; lastAt: string | null; lastBy: string | null; byMe: number } | null = null;
+    if (tool && ask?.kind === "permission") {
+      const patterns = program ? [`${tool}(${program}%`, `${program}%`] : [`${tool}(%`, `${tool}%`];
+      const r = await pool.query<{ decision: string; n: number; last_at: string; last_by: string | null; by_me: number }>(
+        `SELECT a.answer->>'decision' AS decision, COUNT(*)::int AS n, MAX(a.closed_at) AS last_at,
+                (ARRAY_AGG(u.name ORDER BY a.closed_at DESC))[1] AS last_by,
+                COUNT(*) FILTER (WHERE a.answered_by = $5)::int AS by_me
+           FROM asks a JOIN sessions s ON s.org_id = a.org_id AND s.id = a.session_id LEFT JOIN users u ON u.id = a.answered_by
+          WHERE a.org_id = $1 AND a.kind = 'permission' AND a.outcome = 'answered' AND a.closed_at > now() - interval '30 days'
+            AND a.tool = $2 AND (a.prompt LIKE $3 OR a.prompt LIKE $4) AND ($6::uuid IS NULL OR s.owner_id = $6)
+          GROUP BY 1`,
+        [p.orgId, tool, patterns[0], patterns[1], p.userId, rec.ownerId],
+      );
+      const allowed = r.rows.find((x) => x.decision === "allow");
+      const denied = r.rows.find((x) => x.decision === "deny");
+      const latest = [...r.rows].sort((a, b) => Date.parse(b.last_at) - Date.parse(a.last_at))[0];
+      history = { allowed: allowed?.n ?? 0, denied: denied?.n ?? 0, lastAt: latest?.last_at ?? null, lastBy: latest?.last_by ?? null, byMe: r.rows.reduce((n, x) => n + x.by_me, 0) };
+    }
+    return {
+      step: step ? { title: step.title, index: rec.plan!.steps.indexOf(step) + 1, of: rec.plan!.steps.length } : null,
+      files: [...rec.filesChanged].sort((a, b) => b.added + b.removed - (a.added + a.removed)).slice(0, 3),
+      filesTotal: rec.filesChanged.length,
+      failures: failures.map((f) => ({ tool: f.tool, summary: f.summary, error: f.error, ts: f.ts })),
+      program,
+      history,
+    };
+  });
+
   app.post("/sessions/:id/answer", async (req) => {
     const { id } = req.params as { id: string };
     const body = z

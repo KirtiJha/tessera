@@ -1,9 +1,10 @@
-import { Activity, BarChart3, BellRing, Bookmark, ChevronsLeft, ChevronsRight, Clock, CornerDownLeft, Database, History, KeyRound, KeySquare, Laptop, LogOut, Monitor, Moon, PiggyBank, ScrollText, Search, Settings, ShieldCheck, Sun, Tag, User, Users } from "lucide-react";
+import { Activity, BarChart3, BellRing, Bookmark, ChevronsLeft, ChevronsRight, Clock, CornerDownLeft, Database, ExternalLink, Hand, History, KeyRound, KeySquare, Laptop, LogOut, Monitor, Moon, OctagonX, Pause, PiggyBank, Play, ScrollText, Search, Send, Settings, ShieldCheck, Sun, Tag, User, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { requestSessionAction, useFocusedSession } from "../lib/focus";
 import { readPref } from "../lib/prefs";
 import { sessionKind, sessionLabel, useSessions } from "../lib/fleet";
 import { fmtDate, modelShort } from "../lib/format";
@@ -53,6 +54,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const nav = useNavigate();
   const { isAdmin, signOut } = useAuth();
   const sessions = useSessions();
+  const focused = useFocusedSession();
   const { choice, setChoice } = useTheme();
   const [navWidth, setNavWidth] = useNavWidth();
   const [q, setQ] = useState("");
@@ -104,6 +106,20 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   const groups = useMemo<Group[]>(() => {
     const out: Group[] = [];
+    // The session in front of the person comes first, with what can be done to it.
+    const f = focused ? sessions.find((s) => s.id === focused.id) : undefined;
+    if (focused && f && f.status !== "ended") {
+      const act = (kind: "pause" | "resume" | "stop" | "message" | "handover", title: string, icon: ReactNode, words: string) => ({ id: `act:${kind}`, title, words, icon, run: () => requestSessionAction({ kind, id: f.id, label: focused.label }) });
+      const acts = [
+        { id: "act:open", title: `Open ${focused.label}`, words: "session view", icon: <ExternalLink size={14} className="text-fog" />, run: () => nav(`/app/sessions/${encodeURIComponent(f.id)}`) },
+        f.tags.paused ? act("resume", `Resume ${focused.label}`, <Play size={14} className="text-fog" />, "unpause continue") : act("pause", `Pause ${focused.label}`, <Pause size={14} className="text-fog" />, "hold deny tool calls"),
+        act("message", `Message ${focused.label}…`, <Send size={14} className="text-fog" />, "tell instruct"),
+        act("handover", `Hand ${focused.label} over to…`, <Hand size={14} className="text-fog" />, "assign delegate colleague"),
+        act("stop", `Stop ${focused.label}…`, <OctagonX size={14} className="text-fog" />, "halt end turn"),
+      ];
+      const hits = rank(q, acts, (a) => [a.title, a.words], 5);
+      if (hits.length) out.push({ label: `On ${focused.label}`, items: hits.map((a) => ({ id: a.id, title: a.title, icon: a.icon, run: () => { onClose(); a.run(); } })) });
+    }
     const live = rank(q, sessions.filter((s) => s.status !== "ended"), (s) => [sessionLabel(s), s.ownerName, s.git?.branch, s.cwd, s.model, s.machine?.hostname, s.id]);
     if (live.length)
       out.push({
@@ -139,7 +155,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const acts = rank(q, actions, (a) => [a.title, a.words], q.trim() ? 5 : 3);
     if (acts.length) out.push({ label: "Actions", items: acts.map((a) => ({ id: a.id, title: a.title, icon: a.icon, run: () => { onClose(); a.run(); } })) });
     return out;
-  }, [q, sessions, isAdmin, people, ended, choice, navWidth, setChoice, setNavWidth, signOut, nav, onClose]);
+  }, [q, sessions, focused, isAdmin, people, ended, choice, navWidth, setChoice, setNavWidth, signOut, nav, onClose]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   useEffect(() => setActive(0), [q, flat.length]);
