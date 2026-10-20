@@ -653,9 +653,13 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           for (const a of Object.values(s.agents)) if (a.status === "running") { a.status = "aborted"; a.endedAt = s.endedAt; }
           addEvent(s, "session.end", `session ended (${s.endReason})`);
         });
-        // Claude Code gives SessionEnd hooks about 1.5 s by default: one quick attempt.
-        if (cfg) await report(cfg, txn, budget(1200, 3000));
-        deleteState(sid);
+        // Claude Code gives SessionEnd hooks about 1.5 s by default: one quick attempt. The state goes
+        // whatever happens, or a session that failed to report its end would be retried for ever.
+        try {
+          if (cfg) await report(cfg, txn, budget(1200, 3000));
+        } finally {
+          deleteState(sid);
+        }
         return { output: undefined, exitCode: 0 };
       }
       default:

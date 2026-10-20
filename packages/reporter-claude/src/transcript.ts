@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import type { ContextFill, ModelUsage, TokenCounts } from "@tessera/contract";
 
 /**
@@ -40,7 +40,19 @@ function textOf(content: unknown): string | null {
   return null;
 }
 
-export function advance(path: string | null | undefined, cur: TranscriptCursor): TranscriptCursor {
+/** Read at most this much of a transcript per hook. A long session's transcript runs to hundreds of MB; the rest is read on later hooks. */
+export const READ_BUDGET_BYTES = 128 * 1024 * 1024;
+const CHUNK_BYTES = 4 * 1024 * 1024;
+/** And for at most this long: a cold disk (or a scanner inspecting a big file) can make even a bounded read slow. */
+export const READ_BUDGET_MS = 1500;
+
+/**
+ * Read what was appended since the cursor, in chunks, never more than
+ * `budget` bytes per call: the hook has seconds, and runs under the session's
+ * lock, so a 600 MB transcript must not be read in one go (it cannot be: a
+ * string that large does not fit). Totals catch up over the next few hooks.
+ */
+export function advance(path: string | null | undefined, cur: TranscriptCursor, budget = READ_BUDGET_BYTES): TranscriptCursor {
   if (!path || !existsSync(path)) return cur;
   let size: number;
   try {
@@ -53,12 +65,49 @@ export function advance(path: string | null | undefined, cur: TranscriptCursor):
     cur = newCursor();
   }
   if (size === cur.offset) return cur;
-  const fd = readFileSync(path);
-  const chunk = fd.subarray(cur.offset, size).toString("utf8");
-  cur.offset = size;
-  const text = cur.partial + chunk;
-  const lines = text.split("\n");
-  cur.partial = lines.pop() ?? "";
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return cur;
+  }
+  try {
+    const end = Math.min(size, cur.offset + budget);
+    const deadline = Date.now() + READ_BUDGET_MS;
+    const buf = Buffer.allocUnsafe(CHUNK_BYTES);
+    while (cur.offset < end && Date.now() < deadline) {
+      const n = readSync(fd, buf, 0, Math.min(CHUNK_BYTES, end - cur.offset), cur.offset);
+      if (n <= 0) break;
+      // Consume whole lines only: a newline byte never falls inside a UTF-8 character, so the
+      // cut is always clean, and whatever follows the last newline is read again next time.
+      const nl = buf.lastIndexOf(10, n - 1);
+      if (nl >= 0) {
+        parseLines(cur, buf.subarray(0, nl + 1).toString("utf8"));
+        cur.offset += nl + 1;
+      } else if (n === CHUNK_BYTES) {
+        // A whole chunk without a newline: a line too long to be usage data. Remember we are inside it and move on.
+        cur.partial = SKIP;
+        cur.offset += n;
+      } else {
+        // The last line is still being written; read it next time.
+        break;
+      }
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return cur;
+}
+
+const SKIP = "\u0000skip";
+
+/** Parse complete lines. If the previous chunk ended inside an over-long line, its tail (up to the first newline) is dropped. */
+function parseLines(cur: TranscriptCursor, text: string): void {
+  // State saved by an older reporter may hold the start of a line as text; it belongs in front.
+  const lines = (cur.partial && cur.partial !== SKIP ? cur.partial + text : text).split("\n");
+  lines.pop(); // the empty string after the final newline
+  if (cur.partial === SKIP) lines.shift();
+  cur.partial = "";
   for (const line of lines) {
     if (!line.trim()) continue;
     let row: Record<string, unknown>;
@@ -91,7 +140,6 @@ export function advance(path: string | null | undefined, cur: TranscriptCursor):
       cur.compactions++;
     }
   }
-  return cur;
 }
 
 export function usageList(cur: TranscriptCursor): ModelUsage[] {
