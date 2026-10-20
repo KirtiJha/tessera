@@ -1,10 +1,12 @@
-import { DecideRequest, parseReport, Presence } from "@tessera/contract";
+import { DecideRequest, DiffUpload, parseReport, Presence } from "@tessera/contract";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { sha256 } from "../auth/crypto.js";
 import { z } from "zod";
 import { deviceFromRequest } from "../auth/devices.js";
 import { audit } from "../audit.js";
 import { prefsFor, savePrefs } from "../notify/personal.js";
+import { dataSettingsFor } from "../fleet/datasettings.js";
+import { receiveDiff } from "../fleet/diffs.js";
 import type { Fleet } from "../fleet/fleet.js";
 import { metrics } from "../metrics.js";
 import { foldTraces, OtlpSession, type OtlpTraces } from "../fleet/otlp.js";
@@ -163,6 +165,16 @@ export async function ingestRoutes(app: FastifyInstance, opts: { fleet: Fleet })
       if (d.length || Date.now() >= deadline) return { deliveries: d, serverTime: new Date().toISOString() };
       await new Promise((r) => setTimeout(r, 1000));
     }
+  });
+
+  /** The uncommitted diff a person asked for, already redacted on the machine. */
+  app.post("/sessions/:id/diff", { bodyLimit: 1024 * 1024, config: perDevice(60) }, async (req, reply) => {
+    const device = (req as typeof req & { device: NonNullable<Awaited<ReturnType<typeof deviceFromRequest>>> }).device;
+    const { id } = req.params as { id: string };
+    if (!(await fleet.ownedBy(device, id))) return reply.code(403).send({ error: "this session belongs to another person" });
+    const body = DiffUpload.parse(req.body);
+    const ok = receiveDiff(device.orgId, id, body, (await dataSettingsFor(device.orgId)).dlp);
+    return ok ? { ok: true } : reply.code(409).send({ error: "nobody asked for this diff, or it was asked for again" });
   });
 
   app.post("/deliveries/:id/result", { config: perDevice(600) }, async (req, reply) => {

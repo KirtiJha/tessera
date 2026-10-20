@@ -8,6 +8,9 @@ import { pool } from "../db/pool.js";
 import type { Fleet } from "../fleet/fleet.js";
 import { priceTableFor } from "../fleet/pricing.js";
 import { deriveSession } from "../fleet/derive.js";
+import { dataSettingsFor } from "../fleet/datasettings.js";
+import { diffView, pendingRequest, requestDiff } from "../fleet/diffs.js";
+import { randomUUID } from "node:crypto";
 import * as store from "../fleet/store.js";
 import { openStream, type StreamHub } from "../fleet/stream.js";
 import { config } from "../config.js";
@@ -246,6 +249,33 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     return { ok: true, deliveryId: r.deliveryId };
   });
 
+  /**
+   * Ask a live session's machine for its uncommitted diff. The reporter sends
+   * it redacted and capped; the server keeps it in memory for 15 minutes.
+   * Organisations that keep metadata only (excerpts off) get none.
+   */
+  app.post("/sessions/:id/diff", async (req) => {
+    const { id } = req.params as { id: string };
+    const { p } = await actable(req, id);
+    if (!(await dataSettingsFor(p.orgId)).excerpts) throw Object.assign(new Error("Your organisation keeps metadata only (Data and compliance), so diffs are not collected."), { statusCode: 403 });
+    const existing = pendingRequest(p.orgId, id);
+    if (existing) return { ok: true, requestId: existing };
+    const requestId = randomUUID();
+    requestDiff(p.orgId, id, requestId, p.name);
+    await fleet.queueDelivery(p.orgId, id, "command", null, { op: "diff", requestId, by: p.name }, p.userId);
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "session.diff", targetType: "session", targetId: id, detail: { requestId }, ip: req.ip });
+    return { ok: true, requestId };
+  });
+
+  app.get("/sessions/:id/diff", async (req, reply) => {
+    const p = req.principal!;
+    const { id } = req.params as { id: string };
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    if (!canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id })) return reply.code(403).send({ error: "you cannot see this session's diff" });
+    return diffView(p.orgId, id);
+  });
+
   app.post("/sessions/:id/message", async (req) => {
     const { id } = req.params as { id: string };
     const { p } = await actable(req, id);
@@ -318,8 +348,8 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
            FROM asks a LEFT JOIN users u ON u.id = a.answered_by WHERE a.org_id = $1 AND a.session_id = $2 ORDER BY a.created_at ASC LIMIT 500`,
         [p.orgId, id],
       ),
-      pool.query<{ ts: string; tokens_total: string; tokens_delta: number; cost_usd: number | null }>(
-        "SELECT ts, tokens_total, tokens_delta, cost_usd FROM samples WHERE org_id = $1 AND session_id = $2 ORDER BY ts ASC LIMIT 10000",
+      pool.query<{ ts: string; tokens_total: string; tokens_delta: number; cost_usd: number | null; context_used: number | null; context_window: number | null }>(
+        "SELECT ts, tokens_total, tokens_delta, cost_usd, context_used, context_window FROM samples WHERE org_id = $1 AND session_id = $2 ORDER BY ts ASC LIMIT 10000",
         [p.orgId, id],
       ),
       pool.query<{ created_at: string; tool: string; summary: string | null; rule_name: string; effect: string; enforced: boolean }>(
@@ -334,7 +364,7 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
       lastSeenAt: rec.lastSeenAt,
       events: events.rows.map((e) => ({ id: e.id, ts: e.ts, kind: e.kind, agentId: e.agent_id, text: e.text })),
       asks: asks.rows.map((a) => ({ id: a.id, kind: a.kind, tool: a.tool, prompt: a.prompt, createdAt: a.created_at, closedAt: a.closed_at, outcome: a.outcome, decision: (a.answer?.decision as string | undefined) ?? null, answeredBy: a.answered_by, via: (a.answer?.via as string | undefined) ?? null })),
-      samples: samples.rows.map((s) => ({ ts: s.ts, tokens: Number(s.tokens_total), delta: Number(s.tokens_delta), costUsd: s.cost_usd === null ? null : Number(s.cost_usd) })),
+      samples: samples.rows.map((s) => ({ ts: s.ts, tokens: Number(s.tokens_total), delta: Number(s.tokens_delta), costUsd: s.cost_usd === null ? null : Number(s.cost_usd), contextUsed: s.context_used, contextWindow: s.context_window })),
       agents: rec.agents.map((a) => ({ id: a.id, parentId: a.parentId, type: a.type, kind: a.kind, status: a.status, startedAt: a.startedAt, endedAt: a.endedAt })),
       decisions: decisions.rows.map((d) => ({ ts: d.created_at, tool: d.tool, summary: d.summary, rule: d.rule_name, effect: d.effect, enforced: d.enforced })),
     };

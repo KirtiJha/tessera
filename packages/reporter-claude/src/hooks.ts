@@ -3,6 +3,7 @@ import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Qu
 import { log, type Config } from "./config.js";
 import { addEvent, deleteState, endAction, stash, startAction, takeInbox, updateState, type AgentState, type SessionState } from "./state.js";
 import { deleteLive } from "./live.js";
+import { collectDiff } from "./diff.js";
 import { advance, newCursor } from "./transcript.js";
 import { budget, buildReport, get, gitFiles, gitInfo, post, request, sendReport } from "./transport.js";
 
@@ -386,21 +387,55 @@ function ensureKeepalive(txn: Txn, sid: string): void {
   }
 }
 
-/** Refresh the session on the server without taking deliveries, which only a hook can act on. */
+/**
+ * Act on commands from the console that wait in the inbox. The one command is
+ * "diff": a person asked for the session's uncommitted changes. Run outside the
+ * lock; git can take a second on a big tree.
+ */
+export async function runCommands(cfg: Config, txn: Txn, sid: string): Promise<void> {
+  const todo = txn((s) => {
+    const out: { d: Delivery; cwd: string | null }[] = [];
+    for (let d = takeInbox(s, (x) => x.kind === "command"); d; d = takeInbox(s, (x) => x.kind === "command")) out.push({ d, cwd: s.cwd });
+    return out;
+  });
+  for (const { d, cwd } of todo) {
+    const p = d.payload as { op?: unknown; requestId?: unknown };
+    if (p.op !== "diff" || typeof p.requestId !== "string") {
+      await post(cfg, `/api/ingest/deliveries/${d.id}/result`, { result: { applied: false, reason: "this reporter does not know that command" } }, budget(1500, 4000));
+      continue;
+    }
+    const upload = collectDiff(cwd, p.requestId, cfg.excerpts);
+    const path = `/api/ingest/sessions/${encodeURIComponent(sid)}/diff`;
+    let r = await request(cfg, "POST", path, upload, budget(4000, 15_000));
+    // A web filter that blocks code still lets the console learn why there is nothing to show.
+    if (r.kind === "blocked") r = await request(cfg, "POST", path, { requestId: p.requestId, files: [], omitted: upload.files.length + upload.omitted, error: `A web filter on this machine's network blocked the diff. Ask your network team to allow POSTs to ${cfg.serverUrl}.` }, budget(2000, 6000));
+    if (r.kind !== "ok") log(`diff for ${sid}: ${r.kind === "rejected" ? `server answered ${r.status}` : r.kind}`);
+    await post(cfg, `/api/ingest/deliveries/${d.id}/result`, { result: { applied: r.kind === "ok", files: upload.files.length } }, budget(1500, 4000));
+  }
+}
+
+/**
+ * Refresh the session on the server. It takes only commands (a diff asked for
+ * from the console), which it can carry out; answers and messages stay queued
+ * for the hook or the mod that can act on them.
+ */
 export async function heartbeat(cfg: Config, sid: string): Promise<boolean> {
   const txn: Txn = (fn) => updateState(sid, null, null, fn);
   const snap = txn((s) => {
     refreshTranscripts(s);
     refreshGit(s);
-    return { report: { ...buildReport(cfg, s), claimDeliveries: false }, filtered: s.networkFiltered ?? false, retryAt: s.filterRetryAt ?? 0 };
+    return { report: { ...buildReport(cfg, s), claimKinds: ["command" as const] }, filtered: s.networkFiltered ?? false, retryAt: s.filterRetryAt ?? 0 };
   });
   const r = await sendReport(cfg, snap, budget(4000, 10_000));
   if (!r.ack) return false;
   const acked = new Set(r.ack.ackedEvents);
+  const ack = r.ack;
   txn((s) => {
     s.outbox = s.outbox.filter((e) => !acked.has(e.id));
     s.lastReportAt = Date.now();
+    takeFresh(s, ack.deliveries);
   });
+  await runCommands(cfg, txn, sid);
   return true;
 }
 
@@ -640,6 +675,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
         });
         if (cfg) {
           await report(cfg, txn, budget(3000, 8000));
+          await runCommands(cfg, txn, sid);
           // A message claimed by any report in this turn waits in the inbox for the turn's end.
           const msg = input.stop_hook_active ? undefined : txn((s) => takeInbox(s, (d) => d.kind === "message"));
           if (msg) {
@@ -691,6 +727,8 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
       const heavy = event === "PreToolUse" || event === "PostToolUse";
       const due = txn((s) => !heavy || Date.now() - s.lastReportAt > 1000 || s.outbox.length > 0);
       if (due) await report(cfg, txn, heavy ? budget(2500, 6000) : budget(3000, 8000));
+      // Not while a tool waits on this hook: PreToolUse holds the call, so a diff waits for the next hook.
+      if (event !== "PreToolUse") await runCommands(cfg, txn, sid);
     }
   } catch (e) {
     log(`hook ${event} error: ${(e as Error).stack ?? e}`);

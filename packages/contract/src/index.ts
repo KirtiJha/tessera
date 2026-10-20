@@ -5,3 +5,4 @@ export * from "./redact.js";
 export * from "./policy.js";
 export * from "./risk.js";
 export * from "./suggest.js";
+export * from "./diff.js";

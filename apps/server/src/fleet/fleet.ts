@@ -347,11 +347,11 @@ export class Fleet {
     const sigs = this.agentSigs(key);
     const changedAgents = rec.agents.filter((a) => sigs.get(a.id) !== JSON.stringify(a));
     const askChanged = (existing?.openAsk?.id ?? null) !== (rec.openAsk?.id ?? null);
-    const written = await store.ingestOne(ingestPool, rec, changedAgents, report.events, report.claimDeliveries !== false);
+    const written = await store.ingestOne(ingestPool, rec, changedAgents, report.events, report.claimDeliveries !== false, report.claimKinds ?? null);
     const fresh = written.freshEventIds;
     if (askChanged) await withTx((c) => this.syncAsk(c, existing, rec, now));
     for (const a of changedAgents) sigs.set(a.id, JSON.stringify(a));
-    this.bufferSample(orgId, s.id, now, total, delta, cost, usage);
+    this.bufferSample(orgId, s.id, now, total, delta, cost, usage, rec.contextUsed, rec.contextWindow);
     await this.touchDevice(device.deviceId, rec.hostname, rec.machineId);
 
     // Keep ended sessions that already lingered out of the live set.
@@ -744,11 +744,13 @@ export class Fleet {
     return m;
   }
 
-  private bufferSample(orgId: string, sessionId: string, at: string, total: number, delta: number, cost: number | null, usage: SessionRecord["usageByModel"]): void {
+  private bufferSample(orgId: string, sessionId: string, at: string, total: number, delta: number, cost: number | null, usage: SessionRecord["usageByModel"], contextUsed: number | null, contextWindow: number | null): void {
     const minute = new Date(Math.floor(Date.parse(at) / 60_000) * 60_000).toISOString();
     const k = `${orgId}|${sessionId}|${minute}`;
     const prev = this.samples.get(k);
-    this.samples.set(k, { orgId, sessionId, minute, tokensTotal: total, tokensDelta: (prev?.tokensDelta ?? 0) + delta, costUsd: cost, usage });
+    // The minute's fullest point: a compaction inside the minute must not hide how close it came.
+    const used = Math.max(prev?.contextUsed ?? 0, contextUsed ?? 0) || null;
+    this.samples.set(k, { orgId, sessionId, minute, tokensTotal: total, tokensDelta: (prev?.tokensDelta ?? 0) + delta, costUsd: cost, usage, contextUsed: used, contextWindow: contextWindow ?? prev?.contextWindow ?? null });
   }
 
   private async flushSamples(): Promise<void> {

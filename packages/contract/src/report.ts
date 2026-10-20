@@ -294,6 +294,12 @@ export const Report = z.object({
    * that can act on them.
    */
   claimDeliveries: z.boolean().default(true),
+  /**
+   * Claim only these kinds of delivery. The keep-alive takes "command" (a
+   * diff asked for from the console) and leaves answers and messages for the
+   * hooks and the mod.
+   */
+  claimKinds: z.array(z.enum(["answer", "message", "command"])).min(1).max(3).optional(),
 });
 export type Report = z.infer<typeof Report>;
 

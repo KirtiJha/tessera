@@ -200,7 +200,7 @@ export interface IngestResult {
  * deliveries waiting for the session. Postgres runs data-modifying CTEs as one
  * atomic statement, so this is all-or-nothing like a transaction.
  */
-export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentReport[], events: ActivityEvent[], claimDeliveries = true): Promise<IngestResult> {
+export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentReport[], events: ActivityEvent[], claimDeliveries = true, claimKinds: string[] | null = null): Promise<IngestResult> {
   const agentRows = agents.map((a) => ({
     id: a.id, parent_id: a.parentId, kind: a.kind, type: a.type, description: a.description, model: a.model, effort: a.effort,
     status: a.status, started_at: a.startedAt, ended_at: a.endedAt, tokens: a.tokens, usage_by_model: a.usageByModel, context: a.context,
@@ -232,13 +232,13 @@ export async function ingestOne(q: Queryable, rec: SessionRecord, agents: AgentR
        ON CONFLICT (org_id, session_id, id) DO NOTHING RETURNING id),
      d AS (
        UPDATE deliveries SET delivered_at = now() WHERE id IN (
-         SELECT id FROM deliveries WHERE $38::boolean AND org_id = $1 AND session_id = $2 AND delivered_at IS NULL ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED)
+         SELECT id FROM deliveries WHERE $38::boolean AND org_id = $1 AND session_id = $2 AND delivered_at IS NULL AND ($39::text[] IS NULL OR kind = ANY($39::text[])) ORDER BY created_at ASC LIMIT 20 FOR UPDATE SKIP LOCKED)
        RETURNING id, kind, ask_id, payload, created_at)
      SELECT 'e' AS t, e.id, NULL::text AS kind, NULL::text AS ask_id, NULL::jsonb AS payload, NULL::timestamptz AS at FROM e
      UNION ALL
      SELECT 'd', d.id::text, d.kind, d.ask_id, d.payload, d.created_at FROM d
      ORDER BY at NULLS FIRST`,
-    [...sessionParams(rec), JSON.stringify(agentRows), JSON.stringify(eventRows), claimDeliveries],
+    [...sessionParams(rec), JSON.stringify(agentRows), JSON.stringify(eventRows), claimDeliveries, claimKinds],
   );
   return {
     freshEventIds: r.rows.filter((x) => x.t === "e").map((x) => x.id),
@@ -255,6 +255,9 @@ export interface SampleRow {
   tokensDelta: number;
   costUsd: number | null;
   usage: ModelUsage[];
+  /** The fullest the context window was in this minute, and its size. */
+  contextUsed?: number | null;
+  contextWindow?: number | null;
 }
 
 /**
@@ -264,15 +267,17 @@ export interface SampleRow {
  */
 export async function flushSamples(q: Queryable, rows: SampleRow[]): Promise<void> {
   if (!rows.length) return;
-  const data = rows.map((r) => ({ org_id: r.orgId, session_id: r.sessionId, ts: r.minute, tokens_total: r.tokensTotal, tokens_delta: r.tokensDelta, cost_usd: r.costUsd, usage_by_model: r.usage }));
+  const data = rows.map((r) => ({ org_id: r.orgId, session_id: r.sessionId, ts: r.minute, tokens_total: r.tokensTotal, tokens_delta: r.tokensDelta, cost_usd: r.costUsd, usage_by_model: r.usage, context_used: r.contextUsed ?? null, context_window: r.contextWindow ?? null }));
   await q.query(
-    `INSERT INTO samples (org_id, session_id, ts, tokens_total, tokens_delta, cost_usd, usage_by_model)
-     SELECT x.org_id, x.session_id, x.ts, x.tokens_total, x.tokens_delta, x.cost_usd, x.usage_by_model
-       FROM jsonb_to_recordset($1::jsonb) AS x(org_id uuid, session_id text, ts timestamptz, tokens_total bigint, tokens_delta bigint, cost_usd numeric, usage_by_model jsonb)
+    `INSERT INTO samples (org_id, session_id, ts, tokens_total, tokens_delta, cost_usd, usage_by_model, context_used, context_window)
+     SELECT x.org_id, x.session_id, x.ts, x.tokens_total, x.tokens_delta, x.cost_usd, x.usage_by_model, x.context_used, x.context_window
+       FROM jsonb_to_recordset($1::jsonb) AS x(org_id uuid, session_id text, ts timestamptz, tokens_total bigint, tokens_delta bigint, cost_usd numeric, usage_by_model jsonb, context_used integer, context_window integer)
        JOIN sessions s ON s.org_id = x.org_id AND s.id = x.session_id
      ON CONFLICT (org_id, session_id, ts) DO UPDATE SET
        tokens_total = EXCLUDED.tokens_total, tokens_delta = samples.tokens_delta + EXCLUDED.tokens_delta,
-       cost_usd = EXCLUDED.cost_usd, usage_by_model = EXCLUDED.usage_by_model`,
+       cost_usd = EXCLUDED.cost_usd, usage_by_model = EXCLUDED.usage_by_model,
+       context_used = GREATEST(samples.context_used, EXCLUDED.context_used),
+       context_window = COALESCE(EXCLUDED.context_window, samples.context_window)`,
     [JSON.stringify(data)],
   );
 }

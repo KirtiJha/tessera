@@ -84,10 +84,10 @@ export function Landing() {
           {[
             { icon: Eye, title: "State you can read from across the room", body: "Running, waiting on you, background, silent, done. Each state has a colour and a shape, so a wall display works with the sound off." },
             { icon: Workflow, title: "The agent tree, not just the orchestrator", body: "Every subagent, fork and teammate a session launched, what each one costs, what it loaded, and why it failed when it did." },
-            { icon: Gauge, title: "Context fill and blowouts", body: "How full every window is right now and how often it has overflowed, so you know which session is about to lose its memory." },
+            { icon: Gauge, title: "Context fill and blowouts", body: "How full every window is now and minute by minute, with each compaction on the timeline, so you know which session is about to lose its memory." },
             { icon: ScrollText, title: "The plan as the session sees it", body: "Task steps with their owner agent and status, straight from the session's own task list." },
             { icon: Bell, title: "Cost you can defend", body: "Tokens priced on read with your contracted rates per model, split by person, team, project and day. An estimate, labelled as one, never a surprise." },
-            { icon: Lock, title: "History and audit", body: "Every session that ran, every question asked and who answered it, in a hash-chained log you can hand to an auditor." },
+            { icon: Lock, title: "History, replay and audit", body: "Every session that ran, summed up on one card, replayable to any moment you can link to, and every question asked and who answered it in a hash-chained log." },
           ].map(({ icon: Icon, title, body }) => (
             <div key={title} className="bg-paper p-7">
               <Icon size={20} className="text-teal-600" />
@@ -142,7 +142,7 @@ export function Landing() {
             {[
               ["Single sign-on and SCIM", "Okta, Entra ID or Google through OpenID Connect, with verified domains. Your provider creates people and switches them off when they leave."],
               ["Any agent runtime", "Claude Code through its hooks and the Tessera mod; Codex, Gemini and SDK agents through OpenTelemetry traces. One wall."],
-              ["Data you decide to keep", "Metadata-only mode, PII removal, retention per organisation, legal hold, export and erasure for a person's data."],
+              ["Data you decide to keep", "Metadata-only mode, PII removal, retention per organisation, legal hold, export and erasure. Code stays on the machine: a diff is fetched only when someone asks, and held in memory."],
               ["Hash-chained audit, streamed", "Every action in an append-only log you can verify in one click and stream to Splunk or Datadog."],
               ["API keys and a CLI", "Scoped keys that act as their maker. Watch, answer and apply policy as code from a terminal or CI."],
               ["Runs where you run", "One container and Postgres. A Helm chart with Redis for several replicas."],

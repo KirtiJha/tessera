@@ -98,7 +98,7 @@ export function DataPage() {
 
       <Panel title="What Tessera keeps" className="mt-5">
         <div className="space-y-4">
-          <Toggle disabled={ro} checked={!s.excerpts} onChange={(v) => setS({ ...s, excerpts: !v })} title="Metadata only" body="Drop prompt text, agent task and answer excerpts, and session names taken from prompts before they are stored. Tool prompts waiting on a person are kept so they can be answered." />
+          <Toggle disabled={ro} checked={!s.excerpts} onChange={(v) => setS({ ...s, excerpts: !v })} title="Metadata only" body="Drop prompt text, agent task and answer excerpts, and session names taken from prompts before they are stored, and collect no diffs from engineers' machines. Tool prompts waiting on a person are kept so they can be answered." />
           <div>
             <div className="mb-2 text-[13px] font-medium text-mist">Remove before storing</div>
             <div className="grid gap-3 sm:grid-cols-2">

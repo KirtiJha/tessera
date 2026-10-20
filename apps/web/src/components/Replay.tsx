@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Link2, Pause, Play, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { fmtDuration, fmtTokens, fmtUsd } from "../lib/format";
-import { Spinner } from "./ui";
+import { Spinner, useToast } from "./ui";
 
 export interface Timeline {
   id: string;
@@ -12,7 +13,7 @@ export interface Timeline {
   lastSeenAt: string;
   events: { id: string; ts: string; kind: string; agentId: string | null; text: string }[];
   asks: { id: string; kind: string; tool: string | null; prompt: string; createdAt: string; closedAt: string | null; outcome: string | null; decision: string | null; answeredBy: string | null; via: string | null }[];
-  samples: { ts: string; tokens: number; delta: number; costUsd: number | null }[];
+  samples: { ts: string; tokens: number; delta: number; costUsd: number | null; contextUsed: number | null; contextWindow: number | null }[];
   agents: { id: string; parentId: string | null; type: string | null; kind: string; status: string; startedAt: string; endedAt: string | null }[];
   decisions: { ts: string; tool: string; summary: string | null; rule: string; effect: string; enforced: boolean }[];
 }
@@ -48,12 +49,24 @@ function at<T>(list: T[], t: number, time: (x: T) => number): T | null {
   return best >= 0 ? list[best]! : null;
 }
 
+/** `?t=` as seconds from the start ("754"), or a moment ("2026-10-20T09:12:04Z"). Null when absent or unreadable. */
+export function parseMoment(raw: string | null, t0: number): number | null {
+  if (!raw) return null;
+  if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw) * 1000;
+  const at = Date.parse(raw);
+  return Number.isFinite(at) ? at - t0 : null;
+}
+
 /**
  * Replay a session: a scrubber over its whole run with cost, prompts, agents
  * and events laid on it, and a panel that shows the session as it was at the
- * playhead. Space plays and pauses; the arrow keys jump between events.
+ * playhead. Space plays and pauses; the arrow keys jump between events. The
+ * playhead lives in the URL (`?t=`, seconds from the start), so a moment can
+ * be shared.
  */
 export function Replay({ sessionId, live }: { sessionId: string; live: boolean }) {
+  const [params, setParams] = useSearchParams();
+  const toast = useToast();
   const [tl, setTl] = useState<Timeline | null>(null);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -77,11 +90,35 @@ export function Replay({ sessionId, live }: { sessionId: string; live: boolean }
   const span = t1 - t0;
   const x = useCallback((iso: string) => Math.min(1, Math.max(0, (Date.parse(iso) - t0) / span)), [t0, span]);
 
-  // Start at the end, so the first view is the whole story. Once per loaded timeline, never on a re-render.
+  // Start where the link points, else at the end so the first view is the whole story. Once per loaded timeline.
   useEffect(() => {
-    if (tl) setT(span);
+    if (!tl) return;
+    const asked = parseMoment(params.get("t"), t0);
+    setT(asked === null ? span : Math.min(span, Math.max(0, asked)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tl]);
+
+  // Keep the URL on the moment shown, once the playhead rests: not on every frame of playback.
+  const tSec = Math.round(t / 1000);
+  useEffect(() => {
+    if (!tl || playing) return;
+    const id = setTimeout(() => {
+      setParams((p) => {
+        const next = new URLSearchParams(p);
+        if (tSec >= Math.round(span / 1000)) next.delete("t");
+        else next.set("t", String(tSec));
+        return next;
+      }, { replace: true });
+    }, 400);
+    return () => clearTimeout(id);
+  }, [tSec, playing, tl, span, setParams]);
+
+  const copyLink = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "replay");
+    url.searchParams.set("t", String(tSec));
+    void navigator.clipboard?.writeText(url.toString()).then(() => toast("Link to this moment copied."), () => toast("Could not copy the link.", "error"));
+  };
 
   useEffect(() => {
     if (!playing) return;
@@ -145,6 +182,8 @@ export function Replay({ sessionId, live }: { sessionId: string; live: boolean }
   const now = t0 + t;
   const nowIso = new Date(now).toISOString();
   const sample = at(tl.samples, now, (s) => Date.parse(s.ts));
+  const ctxSample = at(tl.samples.filter((s) => s.contextUsed && s.contextWindow), now, (s) => Date.parse(s.ts));
+  const ctxNow = ctxSample ? { pct: Math.round((ctxSample.contextUsed! / ctxSample.contextWindow!) * 100), window: ctxSample.contextWindow! } : null;
   const maxCost = Math.max(0.0001, ...tl.samples.map((s) => s.costUsd ?? 0));
   const maxTok = Math.max(1, ...tl.samples.map((s) => s.tokens));
   const useCost = tl.samples.some((s) => s.costUsd !== null);
@@ -165,6 +204,7 @@ export function Replay({ sessionId, live }: { sessionId: string; live: boolean }
         <button onClick={() => jump(1)} className="rounded-md p-1.5 text-fog hover:bg-slate-2 hover:text-snow" aria-label="Next event"><ChevronRight size={16} /></button>
         <div className="ml-1 font-mono text-[12.5px] tabular-nums text-snow">{new Date(now).toLocaleTimeString()}</div>
         <div className="text-[12.5px] text-fog">{fmtDuration(t)} in, of {fmtDuration(span)}</div>
+        <button onClick={copyLink} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-fog hover:bg-slate-2 hover:text-snow" title="Copy a link that opens the replay at this moment"><Link2 size={13} /> Copy link</button>
         <div className="ml-auto flex items-center gap-2 text-[12px] text-fog">
           Replay in
           <div className="flex rounded-lg border border-line-2 p-0.5" role="group" aria-label="Replay length">
@@ -225,6 +265,13 @@ export function Replay({ sessionId, live }: { sessionId: string; live: boolean }
             <div className="text-[20px] font-semibold tabular-nums text-snow">{fmtUsd(sample?.costUsd ?? 0, 2)}</div>
             <div className="text-[11.5px] text-fog">{fmtTokens(sample?.tokens ?? 0)} tokens</div>
           </div>
+          {ctxNow ? (
+            <div>
+              <div className="text-[11.5px] text-fog">Context</div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-3"><div className="h-full rounded-full" style={{ width: `${Math.min(100, ctxNow.pct)}%`, background: ctxNow.pct >= 90 ? "var(--color-rose-400)" : ctxNow.pct >= 80 ? "var(--color-amber-400)" : "var(--color-teal-400)" }} /></div>
+              <div className="mt-0.5 text-[11.5px] text-fog">{ctxNow.pct}% of {fmtTokens(ctxNow.window)}</div>
+            </div>
+          ) : null}
           <div>
             <div className="text-[11.5px] text-fog">Agents working</div>
             {agentsNow.length ? <div className="mt-1 flex flex-wrap gap-1">{agentsNow.slice(0, 8).map((a) => <span key={a.id} className="rounded bg-teal-700/30 px-1.5 py-0.5 text-[11.5px] text-teal-300">{a.type ?? a.kind}</span>)}{agentsNow.length > 8 ? <span className="text-[11.5px] text-fog">+{agentsNow.length - 8}</span> : null}</div> : <div className="text-mist">none</div>}
