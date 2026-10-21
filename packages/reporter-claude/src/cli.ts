@@ -142,6 +142,15 @@ function claudeVersion(): string | null {
   }
 }
 
+/** When the running reporter's file last changed; a different value means it was updated (or removed). */
+function codeStamp(): number {
+  try {
+    return statSync(process.argv[1] ?? "").mtimeMs;
+  } catch {
+    return -1;
+  }
+}
+
 export async function main(args: string[]): Promise<void> {
   if (PROXY && canProxy) (http as unknown as { setGlobalProxyFromEnv: () => void }).setGlobalProxyFromEnv();
   const cmd = args[0];
@@ -258,15 +267,18 @@ export async function main(args: string[]): Promise<void> {
     case "keepalive": {
       // Started detached by a hook. Keeps a waiting or busy session on the wall while no hook fires,
       // and exits when Claude Code exits, the session ends, or another keep-alive takes over.
+      // It also exits when the reporter is updated, so a new one with the new code takes its place
+      // at the next hook: an old one would keep reporting the session as the old code saw it.
       const sid = args[1] ?? "";
       const claude = Number(args[2]);
       const cfg = loadConfig();
       if (!sid || !cfg || !alive(claude)) return;
       const every = 10_000;
       const until = Date.now() + 24 * 3600_000;
+      const built = codeStamp();
       for (;;) {
         await new Promise((r) => setTimeout(r, every));
-        if (Date.now() > until || !alive(claude) || !hasState(sid)) return;
+        if (Date.now() > until || !alive(claude) || !hasState(sid) || codeStamp() !== built) return;
         const st = updateState(sid, null, null, (s) => ({ mine: s.keepalivePid === process.pid, ended: s.status === "ended", quietFor: Date.now() - (s.lastReportAt ?? 0) }));
         if (!st.mine || st.ended) return;
         // Hooks report on their own while Claude Code is busy; only fill the gaps.
