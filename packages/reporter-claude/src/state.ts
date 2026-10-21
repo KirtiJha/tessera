@@ -26,7 +26,13 @@ export interface SessionState {
   startedAt: string;
   endedAt: string | null;
   endReason: string | null;
+  /** Where Claude Code was started. */
   cwd: string | null;
+  /**
+   * The repository the session is working in when that is not where it started:
+   * it writes files there, or its commands `cd` there. Git facts and diffs come from here.
+   */
+  workDir?: string | null;
   transcriptPath: string | null;
   status: SessionStatus;
   waitReason: WaitReason | null;
@@ -71,6 +77,11 @@ export interface SessionState {
   keepalivePid?: number;
   /** When to next try a full report after a block. */
   filterRetryAt?: number;
+}
+
+/** The folder whose git status and diffs describe the session's work. */
+export function workingIn(s: SessionState): string | null {
+  return s.workDir ?? s.cwd;
 }
 
 /** Is there state for this session? SessionEnd deletes it, which is how a keep-alive learns the session is over. */

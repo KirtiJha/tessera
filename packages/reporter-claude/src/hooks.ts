@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Question, type ReportAck, type SuggestedRule } from "@tessera/contract";
 import { log, type Config } from "./config.js";
-import { addEvent, deleteState, endAction, stash, startAction, takeInbox, updateState, type AgentState, type SessionState } from "./state.js";
+import { addEvent, deleteState, endAction, stash, startAction, takeInbox, updateState, workingIn, type AgentState, type SessionState } from "./state.js";
 import { deleteLive } from "./live.js";
 import { collectDiff } from "./diff.js";
 import { advance, newCursor } from "./transcript.js";
-import { budget, buildReport, get, gitFiles, gitInfo, post, request, sendReport } from "./transport.js";
+import { budget, buildReport, get, gitFiles, gitInfo, gitTop, post, request, sendReport } from "./transport.js";
 
 /** What Claude Code pipes to a hook on stdin. Fields differ by event; all are optional here. */
 export interface HookInput {
@@ -158,9 +160,49 @@ function refreshTranscripts(s: SessionState): void {
 
 function refreshGit(s: SessionState, force = false): void {
   if (!force && Date.now() - s.gitCheckedAt < 10_000) return;
-  s.git = gitInfo(s.cwd);
-  s.filesChanged = s.git ? gitFiles(s.cwd) : [];
+  s.git = gitInfo(workingIn(s));
+  s.filesChanged = s.git ? gitFiles(workingIn(s)) : [];
   s.gitCheckedAt = Date.now();
+}
+
+const WRITES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const CD = /^\s*cd\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))\s*(?:&&|;|$)/;
+
+/**
+ * The folder a tool call says the session is working in: that of a file it
+ * writes, or the one a Bash command starts by `cd`-ing to. Claude Code's own
+ * folder stays where it started, so a session told to work on another repo
+ * reaches it only this way. Reads do not count: looking is not working there.
+ */
+export function workCandidate(tool: string | undefined, input: Record<string, unknown> | undefined, base: string | null): string | null {
+  const i = input ?? {};
+  const abs = (p: string) => {
+    const home = p === "~" || p.startsWith("~/") ? homedir() + p.slice(1) : p;
+    return isAbsolute(home) ? home : base ? resolve(base, home) : null;
+  };
+  if (tool && WRITES.has(tool)) {
+    const p = (i.file_path ?? i.notebook_path) as unknown;
+    return typeof p === "string" && p ? abs(dirname(p)) : null;
+  }
+  if (tool === "Bash" && typeof i.command === "string") {
+    const m = CD.exec(i.command);
+    const p = m?.[1] ?? m?.[2] ?? m?.[3];
+    // `cd -` and `cd $DIR` say nothing the hook can resolve.
+    return p && !p.startsWith("-") && !p.includes("$") ? abs(p) : null;
+  }
+  return null;
+}
+
+/** Follow the session to another repository when a call shows it working there. */
+function followWork(s: SessionState, tool: string | undefined, input: Record<string, unknown> | undefined): void {
+  const dir = workCandidate(tool, input, workingIn(s));
+  const here = workingIn(s);
+  if (!dir || (here && (dir === here || dir.startsWith(`${here}/`)))) return;
+  const top = gitTop(dir);
+  if (!top || top === s.workDir || (!s.workDir && s.cwd && gitTop(s.cwd) === top)) return;
+  s.workDir = top === s.cwd ? null : top;
+  addEvent(s, "note", `Now working in ${clean(top, 300)}${s.workDir && s.cwd ? ` (started in ${clean(s.cwd, 300)})` : ""}`);
+  refreshGit(s, true);
 }
 
 function currentAgentId(s: SessionState): string | null {
@@ -395,7 +437,7 @@ function ensureKeepalive(txn: Txn, sid: string): void {
 export async function runCommands(cfg: Config, txn: Txn, sid: string): Promise<void> {
   const todo = txn((s) => {
     const out: { d: Delivery; cwd: string | null }[] = [];
-    for (let d = takeInbox(s, (x) => x.kind === "command"); d; d = takeInbox(s, (x) => x.kind === "command")) out.push({ d, cwd: s.cwd });
+    for (let d = takeInbox(s, (x) => x.kind === "command"); d; d = takeInbox(s, (x) => x.kind === "command")) out.push({ d, cwd: workingIn(s) });
     return out;
   });
   for (const { d, cwd } of todo) {
@@ -539,6 +581,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           settleTerminalAsk(s, currentAgentId(s), input.tool_name);
           s.status = s.openAsk ? s.status : "running";
           endAction(s, input.tool_use_id, "ok", null, typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
+          followWork(s, input.tool_name, input.tool_input);
         });
         break;
       }

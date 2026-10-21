@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { HOME, VERSION, log, shortHostname, type Config } from "./config.js";
 import { readLive } from "./live.js";
 import { contextFill, usageList } from "./transcript.js";
-import type { SessionState } from "./state.js";
+import { workingIn, type SessionState } from "./state.js";
 
 export function buildReport(cfg: Config, s: SessionState): Report {
   const agents = Object.values(s.agents).map((a) => ({
@@ -45,7 +45,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
     session: {
       id: s.id,
       name: s.name ?? (s.cursor.firstUserText ? clean(s.cursor.firstUserText.split("\n")[0] ?? "", 80) : null),
-      cwd: s.cwd,
+      cwd: workingIn(s),
       model: s.cursor.model,
       effort: null,
       status: s.status,
@@ -271,6 +271,11 @@ export function gitFiles(cwd: string | null): ChangedFile[] {
     files.push({ path: clean(path, 400), status: st, added: n?.added ?? (st === "untracked" ? lineCount(join(cwd, path)) : 0), removed: n?.removed ?? 0 });
   }
   return files.sort((p, q) => q.added + q.removed - (p.added + p.removed)).slice(0, 200);
+}
+
+/** The top of the git repository a folder is in, or null when it is in none (or does not exist). */
+export function gitTop(dir: string): string | null {
+  return git(dir, ["rev-parse", "--show-toplevel"])?.trim() || null;
 }
 
 /** Git facts for the working directory, cheap enough to refresh every 10 s. */
