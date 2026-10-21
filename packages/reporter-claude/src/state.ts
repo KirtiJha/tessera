@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Action, ActivityEvent, AgentReport, ChangedFile, OpenAsk, SessionStatus, WaitReason } from "@tessera/contract";
+import type { Action, ActivityEvent, AgentReport, ChangedFile, OpenAsk, SessionStatus, WaitReason, WorkedIn } from "@tessera/contract";
 import { SESSIONS_DIR, ensureDirs, log } from "./config.js";
 import { newCursor, type TranscriptCursor } from "./transcript.js";
 
@@ -33,6 +33,10 @@ export interface SessionState {
    * it writes files there, or its commands `cd` there. Git facts and diffs come from here.
    */
   workDir?: string | null;
+  /** The top folder of every repository the session has worked in, the one it started in first. */
+  repos?: string[];
+  /** Each of those with its changes, when there is more than one. */
+  workedIn?: WorkedIn[];
   transcriptPath: string | null;
   status: SessionStatus;
   waitReason: WaitReason | null;

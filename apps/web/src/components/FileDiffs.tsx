@@ -66,8 +66,10 @@ const STATUS_TONE = (st: ChangedFile["status"]) => (st === "deleted" ? "text-ros
  * of the engineer's machine when someone opens a file: it is not collected
  * otherwise, and the server keeps it in memory for 15 minutes.
  */
-export function FileDiffs({ sessionId, files, live, canAct, host }: { sessionId: string; files: ChangedFile[]; live: boolean; canAct: boolean; host: string | null }) {
-  const [view, setView] = useState<DiffView | null>(null);
+export function FileDiffs({ sessionId, files, live, canAct, host, dir = null }: { sessionId: string; files: ChangedFile[]; live: boolean; canAct: boolean; host: string | null; dir?: string | null }) {
+  const [held, setView] = useState<DiffView | null>(null);
+  // The server holds one diff per session; one for another repository is not this one's.
+  const view = held && held.dir === dir ? held : null;
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [err, setErr] = useState<string | null>(null);
   const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,8 +95,8 @@ export function FileDiffs({ sessionId, files, live, canAct, host }: { sessionId:
   const ask = async () => {
     setErr(null);
     try {
-      await api.post(path, {});
-      setView((v) => ({ status: "pending", requestedAt: new Date().toISOString(), requestedBy: null, receivedAt: null, files: v?.files ?? [], omitted: 0, error: null }));
+      await api.post(path, dir ? { dir } : {});
+      setView((v) => ({ dir, status: "pending", requestedAt: new Date().toISOString(), requestedBy: null, receivedAt: null, files: v?.dir === dir ? v.files : [], omitted: 0, error: null }));
       if (poll.current) clearTimeout(poll.current);
       poll.current = setTimeout(() => void read(), 1200);
     } catch (e) {

@@ -60,6 +60,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       blowouts: s.blowouts,
       git: s.git,
       filesChanged: s.filesChanged ?? [],
+      workedIn: s.workedIn ?? [],
       plan: null,
       agents,
       openAsk: s.openAsk,

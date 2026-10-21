@@ -56,6 +56,7 @@ export function deriveSession(rec: SessionRecord, table: ModelPrice[], now: numb
     blowouts: rec.blowouts,
     git: rec.git,
     filesChanged: rec.filesChanged,
+    workedIn: rec.workedIn ?? [],
     toolCalls: rec.toolCalls ?? {},
     plan: rec.plan,
     agents,

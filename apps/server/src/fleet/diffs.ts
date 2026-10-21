@@ -13,6 +13,8 @@ const PENDING_MS = 60_000;
 
 interface Entry {
   requestId: string;
+  /** The repository asked about; null for the one the session works in now. */
+  dir: string | null;
   requestedAt: number;
   requestedBy: string;
   receivedAt: number | null;
@@ -26,15 +28,16 @@ function prune(now: number): void {
   for (const [k, e] of entries) if (now - (e.receivedAt ?? e.requestedAt) > TTL_MS) entries.delete(k);
 }
 
-/** A request still waiting for its machine, so a second click does not queue a second one. */
-export function pendingRequest(orgId: string, sessionId: string, now = Date.now()): string | null {
+/** A request for the same repository still waiting for its machine, so a second click does not queue a second one. */
+export function pendingRequest(orgId: string, sessionId: string, dir: string | null, now = Date.now()): string | null {
   const e = entries.get(key(orgId, sessionId));
-  return e && !e.receivedAt && now - e.requestedAt < PENDING_MS ? e.requestId : null;
+  return e && e.dir === dir && !e.receivedAt && now - e.requestedAt < PENDING_MS ? e.requestId : null;
 }
 
-export function requestDiff(orgId: string, sessionId: string, requestId: string, by: string, now = Date.now()): void {
+/** One diff per session is held: asking about another repository replaces the last. */
+export function requestDiff(orgId: string, sessionId: string, requestId: string, by: string, dir: string | null = null, now = Date.now()): void {
   prune(now);
-  entries.set(key(orgId, sessionId), { requestId, requestedAt: now, requestedBy: by, receivedAt: null, upload: null });
+  entries.set(key(orgId, sessionId), { requestId, dir, requestedAt: now, requestedBy: by, receivedAt: null, upload: null });
 }
 
 /** Store what the machine sent, with the organisation's DLP applied. False when nothing asked for it. */
@@ -49,7 +52,7 @@ export function receiveDiff(orgId: string, sessionId: string, upload: DiffUpload
 export function diffView(orgId: string, sessionId: string, now = Date.now()): DiffView {
   prune(now);
   const e = entries.get(key(orgId, sessionId));
-  const base = { requestedAt: null, requestedBy: null, receivedAt: null, files: [], omitted: 0, error: null };
+  const base = { dir: e?.dir ?? null, requestedAt: null, requestedBy: null, receivedAt: null, files: [], omitted: 0, error: null };
   if (!e) return { status: "none", ...base };
   const head = { requestedAt: new Date(e.requestedAt).toISOString(), requestedBy: e.requestedBy };
   if (!e.upload) {
@@ -57,7 +60,7 @@ export function diffView(orgId: string, sessionId: string, now = Date.now()): Di
     return { ...base, ...head, status: "error", error: "The machine did not answer within a minute. It may be asleep, offline, or running a reporter from before diffs; ask again, or rerun the installer there." };
   }
   const u = e.upload;
-  return { ...head, status: u.error ? "error" : "ready", receivedAt: new Date(e.receivedAt!).toISOString(), files: u.files, omitted: u.omitted, error: u.error };
+  return { ...head, dir: e.dir, status: u.error ? "error" : "ready", receivedAt: new Date(e.receivedAt!).toISOString(), files: u.files, omitted: u.omitted, error: u.error };
 }
 
 export function forgetDiffs(): void {

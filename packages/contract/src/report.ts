@@ -65,6 +65,22 @@ export const ChangedFile = z.object({
 });
 export type ChangedFile = z.infer<typeof ChangedFile>;
 
+/**
+ * A repository a session has worked in. Sent only when there is more than one:
+ * a session started in one folder and told to work on another repo reaches it
+ * by `cd` and by absolute paths, and may move between several.
+ */
+export const WorkedIn = z.object({
+  /** The repository's top folder on the machine. */
+  dir: short(400),
+  repo: short(200).nullable().default(null),
+  branch: short(200).nullable().default(null),
+  /** The one the session is working in now; its files are also `filesChanged`. */
+  current: z.boolean().default(false),
+  filesChanged: z.array(ChangedFile).max(200).default([]),
+});
+export type WorkedIn = z.infer<typeof WorkedIn>;
+
 export const PlanStep = z.object({
   id: id,
   title: short(300),
@@ -223,6 +239,8 @@ export const SessionReport = z.object({
   blowouts: z.number().int().nonnegative().default(0),
   git: GitInfo.nullable().default(null),
   filesChanged: z.array(ChangedFile).max(200).default([]),
+  /** Every repository the session has worked in, when it is more than one. */
+  workedIn: z.array(WorkedIn).max(10).default([]),
   plan: Plan.nullable().default(null),
   agents: z.array(AgentReport).max(2000).default([]),
   openAsk: OpenAsk.nullable().default(null),

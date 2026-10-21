@@ -12,6 +12,7 @@ import type {
   SessionStatus,
   TokenCounts,
   WaitReason,
+  WorkedIn,
 } from "./report.js";
 
 /** What the console receives for one session. Derived on the server, never trusted from a reporter. */
@@ -45,6 +46,8 @@ export interface SessionView {
   blowouts: number;
   git: GitInfo | null;
   filesChanged: ChangedFile[];
+  /** Every repository the session has worked in, when more than one; empty otherwise. */
+  workedIn: WorkedIn[];
   /** The session's own tool calls per tool; each agent's are on the agent. */
   toolCalls: Record<string, number>;
   plan: Plan | null;

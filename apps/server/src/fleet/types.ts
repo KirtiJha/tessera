@@ -1,4 +1,4 @@
-import type { Action, AgentReport, ChangedFile, GitInfo, OpenAsk, Plan, SessionStatus, TokenCounts, ModelUsage, WaitReason } from "@tessera/contract";
+import type { Action, AgentReport, ChangedFile, GitInfo, OpenAsk, Plan, SessionStatus, TokenCounts, ModelUsage, WaitReason, WorkedIn } from "@tessera/contract";
 
 /** The server's own record of a session: what the reporter said plus what the server knows. */
 export interface SessionRecord {
@@ -33,6 +33,7 @@ export interface SessionRecord {
   blowouts: number;
   git: GitInfo | null;
   filesChanged: ChangedFile[];
+  workedIn?: WorkedIn[];
   plan: Plan | null;
   openAsk: OpenAsk | null;
   tags: Record<string, string>;

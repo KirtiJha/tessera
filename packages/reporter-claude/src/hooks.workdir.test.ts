@@ -63,9 +63,16 @@ describe("the folder a session works in", () => {
     expect(report.session.filesChanged.map((f) => f.path)).toEqual(["src/netmap.py"]);
     expect(report.events.map((e) => e.text)).toContain(`Now working in ${other} (started in ${started})`);
 
+    // Both repositories are listed, each with its own changes.
+    expect(report.session.workedIn.map((w) => [w.dir, w.current, w.filesChanged.map((f) => f.path)])).toEqual([
+      [started, false, ["deck.pptx"]],
+      [other, true, ["src/netmap.py"]],
+    ]);
+
     // A write back in the first repository moves it back.
     await handle(null, "PostToolUse", { session_id: sid, cwd: started, tool_name: "Write", tool_input: { file_path: join(started, "notes.md") }, tool_use_id: "w1" });
     expect(buildReport(cfg, loadState(sid, null, null)).session.cwd).toBe(started);
+    expect(buildReport(cfg, loadState(sid, null, null)).session.workedIn.find((w) => w.current)?.dir).toBe(started);
   });
 
   it("ignores a write outside any repository", async () => {

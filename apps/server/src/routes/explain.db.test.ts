@@ -15,7 +15,8 @@ const claude: Server = createServer((req, res) => {
   let raw = "";
   req.on("data", (c) => (raw += c));
   req.on("end", () => {
-    asked.push({ headers: req.headers, body: JSON.parse(raw) });
+    // Only the explain calls carry a body; anything else reaching the stand-in is not recorded.
+    if (raw) asked.push({ headers: req.headers, body: JSON.parse(raw) });
     res.writeHead(reply.status, { "content-type": "application/json" }).end(JSON.stringify(reply.body));
   });
 });

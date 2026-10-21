@@ -31,6 +31,7 @@ const base: SessionView = {
   blowouts: 0,
   git: null,
   filesChanged: [],
+  workedIn: [],
   plan: null,
   agents: [],
   openAsk: null,

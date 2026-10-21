@@ -25,6 +25,7 @@ const base = {
   blowouts: 0,
   git: { repo: "acme/payments", branch: "main", worktree: null, ahead: 0, behind: 0, modified: 0 },
   filesChanged: [],
+  workedIn: [],
   plan: null,
   agents: [],
   openAsk: null,

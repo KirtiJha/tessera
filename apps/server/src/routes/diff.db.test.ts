@@ -85,6 +85,24 @@ describe.skipIf(!reachable)("diffs on demand and the context timeline", () => {
     expect(audit.rowCount).toBe(1);
   });
 
+  it("asks about another repository the session worked in, and only one it reported", async () => {
+    const workedIn = [
+      { dir: "/w/workflow", repo: "acme/workflow", branch: "main", current: false, filesChanged: [{ path: "deck.pptx", status: "untracked", added: 0, removed: 0 }] },
+      { dir: "/w/porthaven", repo: "acme/porthaven", branch: "main", current: true, filesChanged: [{ path: "src/netmap.py", status: "modified", added: 3, removed: 1 }] },
+    ];
+    await report({ cwd: "/w/porthaven", workedIn });
+    const detail = (await app.inject({ method: "GET", url: `/api/fleet/sessions/${sid}`, headers: { ...H, cookie: admin } })).json();
+    expect(detail.session.workedIn.map((w: { dir: string }) => w.dir)).toEqual(["/w/workflow", "/w/porthaven"]);
+    expect((await app.inject({ method: "POST", url: `/api/fleet/sessions/${sid}/diff`, headers: { ...H, cookie: admin }, payload: { dir: "/etc" } })).statusCode).toBe(400);
+    const { requestId } = (await app.inject({ method: "POST", url: `/api/fleet/sessions/${sid}/diff`, headers: { ...H, cookie: admin }, payload: { dir: "/w/workflow" } })).json() as { requestId: string };
+    const ka = (await report({ cwd: "/w/porthaven", workedIn }, { claimKinds: ["command"] })).json() as { deliveries: { payload: Record<string, unknown> }[] };
+    expect(ka.deliveries[0]!.payload).toMatchObject({ op: "diff", requestId, dir: "/w/workflow" });
+    expect((await app.inject({ method: "GET", url: `/api/fleet/sessions/${sid}/diff`, headers: { ...H, cookie: admin } })).json()).toMatchObject({ status: "pending", dir: "/w/workflow" });
+    // Kept with the session, so an ended one still says where its work went.
+    const row = await pool.query<{ worked_in: { dir: string }[] }>("SELECT worked_in FROM sessions WHERE org_id = $1 AND id = $2", [orgId, sid]);
+    expect(row.rows[0]?.worked_in.map((w) => w.dir) ?? []).toEqual(["/w/workflow", "/w/porthaven"]);
+  });
+
   it("is not for people who cannot act on the session, nor for an organisation that keeps metadata only", async () => {
     expect((await app.inject({ method: "GET", url: `/api/fleet/sessions/${sid}/diff`, headers: { ...H, cookie: member } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: `/api/fleet/sessions/${sid}/diff`, headers: { ...H, cookie: member }, payload: {} })).statusCode).toBe(403);

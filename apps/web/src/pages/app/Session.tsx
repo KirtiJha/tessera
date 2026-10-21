@@ -11,6 +11,7 @@ import { AgentStrip, ContextBar, KIND, ModBadge, StateShape } from "../../compon
 import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
 import { FileDiffs } from "../../components/FileDiffs";
+import { WorkedIn } from "../../components/WorkedIn";
 import { HELP } from "../../lib/help";
 import { ExplainFailure } from "../../components/ExplainFailure";
 import { SessionSummary } from "../../components/SessionSummary";
@@ -449,7 +450,9 @@ export function SessionPage() {
             )}
           </Panel>
 
-          {s.filesChanged.length ? (
+          {s.workedIn.length > 1 ? (
+            <WorkedIn s={s} live={detail.live && s.status !== "ended"} canAct={detail.canAct} />
+          ) : s.filesChanged.length ? (
             <Panel title={`Files changed · ${s.filesChanged.length}`} action={<span className="text-[12px] text-fog"><span className="text-teal-300">+{s.filesChanged.reduce((n, f) => n + f.added, 0)}</span> <span className="text-rose-400">−{s.filesChanged.reduce((n, f) => n + f.removed, 0)}</span> lines, uncommitted</span>}>
               <FileDiffs sessionId={s.id} files={s.filesChanged} live={detail.live && s.status !== "ended"} canAct={detail.canAct} host={s.machine?.hostname ?? null} />
             </Panel>

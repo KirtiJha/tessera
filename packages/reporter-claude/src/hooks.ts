@@ -162,6 +162,20 @@ function refreshGit(s: SessionState, force = false): void {
   if (!force && Date.now() - s.gitCheckedAt < 10_000) return;
   s.git = gitInfo(workingIn(s));
   s.filesChanged = s.git ? gitFiles(workingIn(s)) : [];
+  if (!s.repos) {
+    const top = s.cwd ? gitTop(s.cwd) : null;
+    s.repos = top ? [top] : [];
+  }
+  // With more than one, each repository's changes, so the console can show where the work went.
+  const here = s.workDir ?? s.repos[0] ?? null;
+  s.workedIn =
+    s.repos.length > 1
+      ? s.repos.map((dir) => {
+          if (dir === here) return { dir, repo: s.git?.repo ?? null, branch: s.git?.branch ?? null, current: true, filesChanged: s.filesChanged ?? [] };
+          const g = gitInfo(dir);
+          return { dir, repo: g?.repo ?? null, branch: g?.branch ?? null, current: false, filesChanged: g ? gitFiles(dir) : [] };
+        })
+      : [];
   s.gitCheckedAt = Date.now();
 }
 
@@ -201,6 +215,11 @@ function followWork(s: SessionState, tool: string | undefined, input: Record<str
   const top = gitTop(dir);
   if (!top || top === s.workDir || (!s.workDir && s.cwd && gitTop(s.cwd) === top)) return;
   s.workDir = top === s.cwd ? null : top;
+  if (!s.repos) {
+    const first = s.cwd ? gitTop(s.cwd) : null;
+    s.repos = first ? [first] : [];
+  }
+  if (!s.repos.includes(top)) s.repos = [...s.repos, top].slice(-10);
   addEvent(s, "note", `Now working in ${clean(top, 300)}${s.workDir && s.cwd ? ` (started in ${clean(s.cwd, 300)})` : ""}`);
   refreshGit(s, true);
 }
@@ -437,7 +456,11 @@ function ensureKeepalive(txn: Txn, sid: string): void {
 export async function runCommands(cfg: Config, txn: Txn, sid: string): Promise<void> {
   const todo = txn((s) => {
     const out: { d: Delivery; cwd: string | null }[] = [];
-    for (let d = takeInbox(s, (x) => x.kind === "command"); d; d = takeInbox(s, (x) => x.kind === "command")) out.push({ d, cwd: workingIn(s) });
+    for (let d = takeInbox(s, (x) => x.kind === "command"); d; d = takeInbox(s, (x) => x.kind === "command")) {
+      // Another repository the session worked in, but only one it did: the console cannot name any folder.
+      const dir = (d.payload as { dir?: unknown }).dir;
+      out.push({ d, cwd: typeof dir === "string" && (s.repos ?? []).includes(dir) ? dir : workingIn(s) });
+    }
     return out;
   });
   for (const { d, cwd } of todo) {

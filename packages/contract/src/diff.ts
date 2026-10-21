@@ -38,6 +38,8 @@ export type DiffUpload = z.infer<typeof DiffUpload>;
 
 /** What the console reads back. */
 export interface DiffView {
+  /** The repository asked about, when not the one the session works in now. */
+  dir: string | null;
   status: "none" | "pending" | "ready" | "error";
   requestedAt: string | null;
   requestedBy: string | null;

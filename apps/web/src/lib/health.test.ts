@@ -18,6 +18,7 @@ const base = {
   tags: {},
   git: { repo: "acme/payments", branch: "feat/PAY-142-refunds", worktree: null, ahead: 0, behind: 0, modified: 0 },
   filesChanged: [{ path: "a.ts", status: "modified", added: 1, removed: 0 }],
+  workedIn: [],
   activity: [],
 } as unknown as SessionView;
 const session = (over: Partial<SessionView>): SessionView => ({ ...base, ...over }) as SessionView;

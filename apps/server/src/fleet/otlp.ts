@@ -246,6 +246,7 @@ export class OtlpSession {
         blowouts: 0,
         git: this.repo || this.branch ? { repo: this.repo, branch: this.branch, worktree: null, ahead: 0, behind: 0, modified: 0 } : null,
         filesChanged: [],
+        workedIn: [],
         plan: null,
         agents,
         openAsk: null,

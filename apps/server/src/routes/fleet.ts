@@ -286,18 +286,24 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
   /**
    * Ask a live session's machine for its uncommitted diff. The reporter sends
    * it redacted and capped; the server keeps it in memory for 15 minutes.
-   * Organisations that keep metadata only (excerpts off) get none.
+   * Organisations that keep metadata only (excerpts off) get none. `dir` asks
+   * about another repository the session worked in; only one it reported.
    */
   app.post("/sessions/:id/diff", async (req) => {
     const { id } = req.params as { id: string };
-    const { p } = await actable(req, id);
+    const { p, rec } = await actable(req, id);
+    const { dir = null } = z.object({ dir: z.string().max(400).nullable().optional() }).parse(req.body ?? {});
+    const other = dir ? (rec.workedIn ?? []).find((w) => w.dir === dir && !w.current) : null;
+    if (dir && !(rec.workedIn ?? []).some((w) => w.dir === dir)) throw Object.assign(new Error("The session has not worked in that folder."), { statusCode: 400 });
     if (!(await dataSettingsFor(p.orgId)).excerpts) throw Object.assign(new Error("Your organisation keeps metadata only (Data and compliance), so diffs are not collected."), { statusCode: 403 });
-    const existing = pendingRequest(p.orgId, id);
+    // The repository it works in now is asked about without a folder, as reporters before this expect.
+    const at = other ? other.dir : null;
+    const existing = pendingRequest(p.orgId, id, at);
     if (existing) return { ok: true, requestId: existing };
     const requestId = randomUUID();
-    requestDiff(p.orgId, id, requestId, p.name);
-    await fleet.queueDelivery(p.orgId, id, "command", null, { op: "diff", requestId, by: p.name }, p.userId);
-    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "session.diff", targetType: "session", targetId: id, detail: { requestId }, ip: req.ip });
+    requestDiff(p.orgId, id, requestId, p.name, at);
+    await fleet.queueDelivery(p.orgId, id, "command", null, { op: "diff", requestId, by: p.name, ...(at ? { dir: at } : {}) }, p.userId);
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "session.diff", targetType: "session", targetId: id, detail: { requestId, ...(at ? { dir: at } : {}) }, ip: req.ip });
     return { ok: true, requestId };
   });
 

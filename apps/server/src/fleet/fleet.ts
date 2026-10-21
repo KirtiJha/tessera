@@ -69,6 +69,12 @@ function sanitise(r: Report, data: DataSettings = DEFAULT_DATA): void {
     s.git.worktree = s.git.worktree && t(s.git.worktree, 400);
   }
   for (const f of s.filesChanged) f.path = t(f.path, 400);
+  for (const w of s.workedIn) {
+    w.dir = t(w.dir, 400);
+    w.repo = w.repo && t(w.repo, 200);
+    w.branch = w.branch && t(w.branch, 200);
+    for (const f of w.filesChanged) f.path = t(f.path, 400);
+  }
   if (s.plan) {
     s.plan.title = s.plan.title && t(s.plan.title, 300);
     for (const st of s.plan.steps) st.title = t(st.title, 300);
@@ -323,6 +329,7 @@ export class Fleet {
       blowouts: s.blowouts,
       git: s.git,
       filesChanged: s.filesChanged,
+      workedIn: s.workedIn,
       plan: s.plan,
       openAsk: s.openAsk,
       tags: s.tags,
