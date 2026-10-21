@@ -73,6 +73,14 @@ export function AgentStrip({ s }: { s: SessionView }) {
 /** Runtimes other than Claude Code get a label; Claude Code is the default and needs none. */
 const RUNTIME: Record<string, string> = { "codex-cli": "Codex", "gemini-cli": "Gemini", cursor: "Cursor", custom: "OTel" };
 
+const MOD_TITLE = "The Tessera mod runs in this session: a message from Tessera reaches it at once, even when it is idle, /tessera works in its terminal, and its context and cost are Claude Code's own figures.";
+
+/** Marks a session the Tessera mod runs in. */
+export function ModBadge({ s }: { s: Pick<SessionView, "reporter"> }) {
+  if (!(s.reporter.features ?? []).includes("mod")) return null;
+  return <span className="shrink-0 rounded-md bg-teal-400/15 px-1.5 py-0.5 text-[11px] font-medium text-teal-300" title={MOD_TITLE} aria-label="Tessera mod running">mod</span>;
+}
+
 export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = false, selected = false, selecting = false, onSelect, onFocus, health = [], compact = false }: { s: SessionView; now: number; isNew?: boolean; focused?: boolean; selected?: boolean; selecting?: boolean; onSelect?: (id: string) => void; onFocus?: (id: string) => void; health?: HealthFlag[]; compact?: boolean }) {
   const kind = sessionKind(s);
   const k = KIND[kind];
@@ -105,6 +113,7 @@ export const SessionCard = memo(function SessionCard({ s, now, isNew, focused = 
             </div>
             {RUNTIME[s.reporter.kind] ? <span className="shrink-0 rounded-md bg-violet-400/15 px-1.5 py-0.5 text-[11px] text-violet-400">{RUNTIME[s.reporter.kind]}</span> : null}
             {s.tags["network-filter"] ? <span className="shrink-0 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] text-amber-400" title="A web filter on the engineer's network blocks the full report, so commands and file detail are withheld. The session, its state and cost still show.">detail withheld</span> : null}
+            <ModBadge s={s} />
             <span className="shrink-0 rounded-md border border-line-2 px-1.5 py-0.5 text-[11px] text-mist">{modelShort(s.model)}{s.effort ? ` · ${s.effort}` : ""}</span>
           </div>
 

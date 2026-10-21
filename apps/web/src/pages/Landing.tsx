@@ -16,6 +16,7 @@ export function Landing() {
         <nav className="flex items-center gap-1 text-[14px]">
           <a href="#see" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">What you see</a>
           <a href="#act" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">Act</a>
+          <a href="#terminal" className="hidden rounded-lg px-3 py-2 text-ash hover:text-ink lg:inline-block">In Claude Code</a>
           <a href="#govern" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">Govern</a>
           <a href="#install" className="hidden rounded-lg px-3 md:inline-block py-2 text-ash hover:text-ink">Install</a>
           {me ? (
@@ -108,7 +109,7 @@ export function Landing() {
             <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Answer it where you are.</h2>
             <p className="mt-4 text-[17px] leading-relaxed text-ash">A session that waits is a session that costs. Tessera brings the prompt to you: allow or deny a tool, approve a plan, send a message, pause a runaway. From the console, or from the Slack message that told you.</p>
             <ul className="mt-6 space-y-3 text-[15px] text-ink">
-              {["Allow, Deny and Approve buttons on the Slack message itself, answered as the person who pressed.", "Stop a runaway turn, pause a session, or hand it to a colleague before you step away.", "A message from the console reaches a session idle at its prompt at once, and /tessera away in the terminal holds prompts for your phone.", "Only the session's owner, their team's approvers or an admin can act, and every action is logged.", "Tessera never opens a connection to an engineer's machine. The reporter pulls, always."].map((t) => (
+              {["Allow, Deny and Approve buttons on the Slack message itself, answered as the person who pressed.", "Stop a runaway turn, pause a session, or hand it to a colleague before you step away.", "Only the session's owner, their team's approvers or an admin can act, and every action is logged.", "Tessera never opens a connection to an engineer's machine. The reporter pulls, always."].map((t) => (
                 <li key={t} className="flex gap-3">
                   <span className="mt-[7px] h-2 w-2 shrink-0 rounded-[3px] bg-teal-600" />
                   <span>{t}</span>
@@ -129,6 +130,43 @@ export function Landing() {
               <span className="rounded-lg border border-line-2 px-3.5 py-2 text-[13px] font-medium text-mist">Deny with a reason</span>
               <span className="ml-auto rounded-lg border border-line-2 px-3.5 py-2 text-[13px] font-medium text-mist">Message</span>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Inside Claude Code: the mod */}
+      <section id="terminal" className="mx-auto max-w-6xl px-6 py-20">
+        <div className="grid items-center gap-12 lg:grid-cols-2">
+          <div className="min-w-0 rounded-2xl border border-ink/10 bg-ink p-5 font-mono text-[12.5px] leading-relaxed text-snow shadow-[0_30px_60px_-40px_rgba(0,0,0,0.6)]" aria-label="A Claude Code terminal with the Tessera mod">
+            <div className="mb-3 flex gap-1.5" aria-hidden="true"><span className="h-2.5 w-2.5 rounded-full bg-slate-3" /><span className="h-2.5 w-2.5 rounded-full bg-slate-3" /><span className="h-2.5 w-2.5 rounded-full bg-slate-3" /></div>
+            <div className="text-fog">&gt; /tessera away</div>
+            <div className="mt-1 break-words text-mist"><span className="text-teal-300">tessera:</span> Away mode is on: prompts wait up to 10 minutes for an answer from Tessera, then the terminal asks.</div>
+            <div className="mt-4 text-fog">The tessera plugin sent a message:</div>
+            <div className="mt-1 break-words text-snow">Message from Priya via Tessera: stop after the refunds tests and push what you have.</div>
+            <div className="mt-2 break-words text-mist">● Running the refunds tests, then pushing to feat/refunds.</div>
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-400/40 bg-ink-2 px-3 py-2 font-sans text-[12.5px]">
+              <span className="font-medium text-amber-400">Tessera · away mode</span>
+              <span className="min-w-0 text-fog">Prompts wait up to 10 min for your phone or the console.</span>
+              <span className="ml-auto rounded-md border border-line-2 px-2 py-0.5 text-mist">I'm back</span>
+            </div>
+            <div className="mt-2 text-fog">&gt; <span className="inline-block h-3.5 w-1.5 translate-y-0.5 bg-snow/70" aria-hidden="true" /></div>
+          </div>
+          <div>
+            <h2 className="font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[42px]">Tessera inside Claude Code.</h2>
+            <p className="mt-4 text-[17px] leading-relaxed text-ash">On Claude Code 2.1.287 and later the installer adds the Tessera mod beside the hooks. It runs inside Claude Code, so it can do what a hook cannot.</p>
+            <ul className="mt-6 space-y-3 text-[15px] text-ink">
+              {[
+                "A message sent from the console or your phone reaches a session sitting idle at its prompt within seconds, as a new turn. Without the mod it waits for the session's next turn to end.",
+                "/tessera in the terminal shows the connection and a link to the session; /tessera away and /tessera back switch where prompts wait, with a band above the prompt while away mode is on.",
+                "Context and cost on the wall are Claude Code's own figures, not estimates from the transcript.",
+                "Sessions running it carry a mod badge on the wall. Where an organisation allows only its own mods, the hooks report everything without it.",
+              ].map((t) => (
+                <li key={t} className="flex gap-3">
+                  <span className="mt-[7px] h-2 w-2 shrink-0 rounded-[3px] bg-teal-600" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
