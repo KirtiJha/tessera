@@ -8,6 +8,10 @@ export const DataSettingsSchema = z.object({
   excerpts: z.boolean().default(true),
   /** Let people ask Claude to explain a failed tool call: sends its redacted error output to the Claude API. Off unless an owner turns it on. */
   explainFailures: z.boolean().default(false),
+  /** Keep the last lines each command printed, redacted. Off unless an owner turns it on. */
+  toolOutput: z.boolean().default(false),
+  /** Keep what each edit and write changed (a patch per call), redacted, so changes stay viewable after a commit. Off unless an owner turns it on. */
+  editHistory: z.boolean().default(false),
   dlp: z
     .object({
       emails: z.boolean().default(false),

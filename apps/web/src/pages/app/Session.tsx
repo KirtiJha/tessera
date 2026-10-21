@@ -12,6 +12,8 @@ import { Sparkline } from "../../components/Sparkline";
 import { Replay } from "../../components/Replay";
 import { FileDiffs } from "../../components/FileDiffs";
 import { WorkedIn } from "../../components/WorkedIn";
+import { ActionHistory } from "../../components/ActionHistory";
+import { ChangeHistory } from "../../components/ChangeHistory";
 import { HELP } from "../../lib/help";
 import { ExplainFailure } from "../../components/ExplainFailure";
 import { SessionSummary } from "../../components/SessionSummary";
@@ -247,7 +249,7 @@ function Respond({ s, canAct, onDone, now }: { s: SessionView; canAct: boolean; 
           <motion.p key="none" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[13px] text-fog">Nothing is waiting for an answer right now.</motion.p>
         )}
       </AnimatePresence>
-      {ask && s.activity.length ? <ActionList actions={s.activity} agents={s.agents} now={now} limit={6} title="What led here" /> : null}
+      {ask && s.activity.length ? <ActionList actions={s.activity} agents={s.agents} now={now} limit={6} title="What led here" sessionId={s.id} /> : null}
 
       <div>
         <div className="mb-1.5 text-[12px] font-medium text-mist">Send a message</div>
@@ -360,7 +362,7 @@ export function SessionPage() {
               {s.tags.paused ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400">paused</span> : null}
               {s.stopRequested ? <span className="rounded-md bg-rose-600/20 px-2 py-0.5 text-[11.5px] font-medium text-rose-400">stopping</span> : null}
               {s.assignee ? <span className="rounded-md bg-violet-400/15 px-2 py-0.5 text-[11.5px] font-medium text-violet-400">handed to {s.assignee.name}</span> : null}
-              {s.tags["network-filter"] ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400" title="A web filter on the engineer's network blocks the full report. Commands, diffs and excerpts are withheld; state, cost, agents and timing are live.">detail withheld by a network filter</span> : null}
+              {s.tags["network-filter"] ? <span className="rounded-md bg-amber-400/15 px-2 py-0.5 text-[11.5px] font-medium text-amber-400" title={s.tags["network-filter"] === "detail withheld" ? "A web filter on the engineer's network blocks the full report. Commands, diffs and excerpts are withheld; state, cost, agents and timing are live." : "A web filter on the engineer's network blocks a few tool calls' text. Only those are withheld; everything else is shown."}>{s.tags["network-filter"] === "detail withheld" ? "detail withheld by a network filter" : `${s.tags["network-filter"]} by a network filter`}</span> : null}
               {s.continuedFrom ? <Link to={`/app/sessions/${encodeURIComponent(s.continuedFrom)}`} className="rounded-md bg-slate-2 px-2 py-0.5 text-[11.5px] font-medium text-mist hover:text-snow">continues an earlier session →</Link> : null}
             </div>
             <div className="mt-1 break-words text-[13px] text-fog">
@@ -432,7 +434,7 @@ export function SessionPage() {
           </Panel>
 
           <Panel title={s.activity.length ? `Activity · ${s.activity.filter((a) => a.status === "running").length ? "working now" : "last tool calls"}` : "Activity"}>
-            <ActionList actions={s.activity} agents={s.agents} now={now} limit={12} filterable explainIn={detail.canExplain ? s.id : undefined} />
+            <ActionHistory sessionId={s.id} live={s.activity} agents={s.agents} now={now} explainIn={detail.canExplain ? s.id : undefined} />
           </Panel>
 
           <Panel title={s.plan?.title ? `Plan · ${s.plan.title}` : "Plan"}>
@@ -449,6 +451,8 @@ export function SessionPage() {
               <p className="text-[13px] text-fog">No plan reported. The session has not used its task list.</p>
             )}
           </Panel>
+
+          {detail.canAct ? <ChangeHistory sessionId={s.id} roots={s.workedIn.length ? s.workedIn.map((w) => w.dir) : s.cwd ? [s.cwd] : []} live={detail.live && s.status !== "ended"} /> : null}
 
           {s.workedIn.length > 1 ? (
             <WorkedIn s={s} live={detail.live && s.status !== "ended"} canAct={detail.canAct} />

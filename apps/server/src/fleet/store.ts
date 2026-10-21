@@ -1,4 +1,4 @@
-import type { ActivityEvent, AgentReport, EventView, ModelUsage, WorkedIn } from "@tessera/contract";
+import type { Action, ActionDetail, ActivityEvent, AgentReport, EventView, ModelUsage, WorkedIn } from "@tessera/contract";
 import { pool, type Queryable } from "../db/pool.js";
 import type { SessionRecord } from "./types.js";
 
@@ -187,6 +187,69 @@ function sessionParams(rec: SessionRecord): unknown[] {
   ];
 }
 
+/**
+ * Tool calls, new or changed since the last write. Detail merges, so a patch or
+ * output sent once survives the lighter copies of the call that follow it.
+ */
+export async function upsertActions(q: Queryable, orgId: string, sessionId: string, rows: Action[]): Promise<void> {
+  if (!rows.length) return;
+  await q.query(
+    `INSERT INTO actions (org_id, session_id, id, ts, tool, agent_id, summary, status, ended_at, duration_ms, error, withheld, detail)
+     SELECT $1, $2, x.id, x.ts, x.tool, x."agentId", x.summary, x.status, x."endedAt", x."durationMs", x.error, COALESCE(x.withheld, false), COALESCE(x.detail, '{}'::jsonb)
+       FROM jsonb_to_recordset($3::jsonb) AS x(id text, ts timestamptz, tool text, "agentId" text, summary text, status text, "endedAt" timestamptz, "durationMs" integer, error text, withheld boolean, detail jsonb)
+     ON CONFLICT (org_id, session_id, id) DO UPDATE SET
+       summary = EXCLUDED.summary, status = EXCLUDED.status, ended_at = EXCLUDED.ended_at, duration_ms = EXCLUDED.duration_ms,
+       error = EXCLUDED.error, withheld = EXCLUDED.withheld, detail = actions.detail || EXCLUDED.detail`,
+    [orgId, sessionId, JSON.stringify(rows)],
+  );
+}
+
+export interface StoredAction extends Action {
+  detail?: ActionDetail;
+}
+
+const actionFrom = (r: { id: string; ts: Date | string; tool: string; agent_id: string | null; summary: string; status: Action["status"]; ended_at: Date | string | null; duration_ms: number | null; error: string | null; withheld: boolean; detail: ActionDetail }): StoredAction => ({
+  id: r.id,
+  ts: new Date(r.ts).toISOString(),
+  tool: r.tool,
+  agentId: r.agent_id,
+  summary: r.summary,
+  status: r.status,
+  endedAt: r.ended_at ? new Date(r.ended_at).toISOString() : null,
+  durationMs: r.duration_ms,
+  error: r.error,
+  withheld: r.withheld || undefined,
+  detail: r.detail,
+});
+
+/** A session's tool calls, newest first, a page at a time; `failed` keeps only failed and denied ones. */
+export async function listActions(orgId: string, sessionId: string, opts: { before?: string; limit: number; failed?: boolean; tool?: string }): Promise<{ actions: StoredAction[]; total: number }> {
+  const where = ["org_id = $1", "session_id = $2"];
+  const args: unknown[] = [orgId, sessionId];
+  if (opts.failed) where.push("status IN ('failed','denied')");
+  if (opts.tool) where.push(`tool = $${args.push(opts.tool)}`);
+  const base = where.join(" AND ");
+  const page = [...where];
+  const pageArgs = [...args];
+  if (opts.before) page.push(`ts < $${pageArgs.push(opts.before)}`);
+  const [rows, count] = await Promise.all([
+    pool.query(`SELECT * FROM actions WHERE ${page.join(" AND ")} ORDER BY ts DESC, id DESC LIMIT $${pageArgs.push(opts.limit)}`, pageArgs),
+    pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM actions WHERE ${base}`, args),
+  ]);
+  return { actions: rows.rows.map(actionFrom), total: count.rows[0]?.n ?? 0 };
+}
+
+export async function getAction(orgId: string, sessionId: string, id: string): Promise<StoredAction | null> {
+  const r = await pool.query("SELECT * FROM actions WHERE org_id = $1 AND session_id = $2 AND id = $3", [orgId, sessionId, id]);
+  return r.rows[0] ? actionFrom(r.rows[0]) : null;
+}
+
+/** Every edit and write whose patch was kept, oldest first. */
+export async function listChanges(orgId: string, sessionId: string): Promise<StoredAction[]> {
+  const r = await pool.query("SELECT * FROM actions WHERE org_id = $1 AND session_id = $2 AND detail ? 'patch' AND status = 'ok' ORDER BY ts ASC LIMIT 2000", [orgId, sessionId]);
+  return r.rows.map(actionFrom);
+}
+
 export async function upsertSession(q: Queryable, rec: SessionRecord): Promise<void> {
   await q.query(SESSION_UPSERT, sessionParams(rec));
 }
@@ -311,6 +374,7 @@ export async function prune(retainSamplesDays: number, retainEventsDays: number,
   // The push log only stops a notification going out twice; a week is plenty.
   await pool.query("DELETE FROM push_log WHERE at < now() - interval '7 days'");
   await pool.query(`DELETE FROM events x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.ts < now() - ${days("retainEventsDays", retainEventsDays)}`);
+  await pool.query(`DELETE FROM actions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.ts < now() - ${days("retainEventsDays", retainEventsDays)}`);
   await pool.query(`DELETE FROM policy_decisions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND x.created_at < now() - ${days("retainEventsDays", retainEventsDays)}`);
   await pool.query(`DELETE FROM sessions x USING orgs o WHERE x.org_id = o.id AND NOT ${held} AND COALESCE(x.ended_at, x.dropped_at) < now() - ${days("retainSessionsDays", retainSessionsDays)}`);
   await pool.query("DELETE FROM user_sessions WHERE expires_at < now()");

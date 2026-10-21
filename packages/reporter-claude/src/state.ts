@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Action, ActivityEvent, AgentReport, ChangedFile, OpenAsk, SessionStatus, WaitReason, WorkedIn } from "@tessera/contract";
+import type { Action, ActionDetail, ActivityEvent, AgentReport, ChangedFile, OpenAsk, SessionStatus, WaitReason, WorkedIn } from "@tessera/contract";
 import { SESSIONS_DIR, ensureDirs, log } from "./config.js";
 import { newCursor, type TranscriptCursor } from "./transcript.js";
 
@@ -73,6 +73,12 @@ export interface SessionState {
   forced: { summary: string; reason: string; at: number } | null;
   /** A web filter on this network blocked the full report; detail is being withheld. */
   networkFiltered?: boolean;
+  /** What the organisation keeps beyond metadata, as the server last said. */
+  keep?: { toolOutput: boolean; edits: boolean };
+  /** Tool calls ("a:<id>") and events ("e:<id>") a web filter was found to block: only these are withheld. */
+  blockedText?: string[];
+  /** When the reporter last looked for what the filter blocks. */
+  filterSearchedAt?: number;
   /** The owner's away setting, as the server last said: decides how long prompts wait for Tessera. */
   presence?: "auto" | "desk" | "away";
   /** The agent whose prompt is open, so its next tool call can close a prompt answered in the terminal. */
@@ -143,13 +149,13 @@ export function loadState(id: string, cwd: string | null, transcriptPath: string
 }
 
 /** Record a tool call starting; the matching PostToolUse closes it by id. */
-export function startAction(s: SessionState, id: string, tool: string, summary: string, agentId: string | null): void {
+export function startAction(s: SessionState, id: string, tool: string, summary: string, agentId: string | null, detail?: ActionDetail): void {
   if (!s.activity) s.activity = [];
-  s.activity.push({ id, ts: new Date().toISOString(), tool, summary: summary.slice(0, 300), agentId, status: "running", endedAt: null, durationMs: null, error: null });
+  s.activity.push({ id, ts: new Date().toISOString(), tool, summary: summary.slice(0, 300), agentId, status: "running", endedAt: null, durationMs: null, error: null, ...(detail ? { detail } : {}) });
   if (s.activity.length > 40) s.activity.splice(0, s.activity.length - 40);
 }
 
-export function endAction(s: SessionState, id: string | undefined, status: "ok" | "failed" | "denied", error: string | null = null, durationMs: number | null = null): void {
+export function endAction(s: SessionState, id: string | undefined, status: "ok" | "failed" | "denied", error: string | null = null, durationMs: number | null = null, more?: Partial<ActionDetail>): void {
   if (!s.activity) s.activity = [];
   // Without an id (older runtimes), close the newest running call of this session.
   const a = (id ? s.activity.find((x) => x.id === id) : undefined) ?? [...s.activity].reverse().find((x) => x.status === "running");
@@ -158,6 +164,18 @@ export function endAction(s: SessionState, id: string | undefined, status: "ok" 
   a.endedAt = new Date().toISOString();
   a.durationMs = durationMs ?? Math.max(0, Date.parse(a.endedAt) - Date.parse(a.ts));
   a.error = error ? error.slice(0, 300) : null;
+  if (more && Object.keys(more).length) a.detail = { ...a.detail, ...more };
+}
+
+/** Drop the output and patch of calls the server says it keeps: they are sent once. */
+export function forgetSent(s: SessionState, ids: string[]): void {
+  if (!ids.length) return;
+  const sent = new Set(ids);
+  for (const a of s.activity ?? []) {
+    if (!sent.has(a.id) || !a.detail) continue;
+    const { output: _o, patch: _p, patchTruncated: _t, ...light } = a.detail;
+    a.detail = light;
+  }
 }
 
 const LOCK_WAIT_MS = 4000;

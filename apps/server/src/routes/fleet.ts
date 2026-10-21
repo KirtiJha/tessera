@@ -307,6 +307,50 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     return { ok: true, requestId };
   });
 
+  /** Output and patches are code: only people who can act on the session see them. */
+  const forViewer = (a: store.StoredAction, full: boolean): store.StoredAction => {
+    if (full || !a.detail) return a;
+    const { output: _o, patch: _p, ...light } = a.detail;
+    return { ...a, detail: light };
+  };
+
+  /** The session's whole tool-call history, newest first, a page at a time (`before`: the oldest call shown). */
+  app.get("/sessions/:id/actions", async (req, reply) => {
+    const p = req.principal!;
+    const { id } = req.params as { id: string };
+    const q = z.object({ before: z.string().datetime().optional(), limit: z.coerce.number().int().min(1).max(200).default(100), failed: z.enum(["1", "0"]).optional(), tool: z.string().max(120).optional() }).parse(req.query);
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    const full = canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id });
+    const r = await store.listActions(p.orgId, id, { before: q.before, limit: q.limit, failed: q.failed === "1", tool: q.tool });
+    return { total: r.total, actions: r.actions.map((a) => forViewer(a, full)), more: r.actions.length === q.limit };
+  });
+
+  /** One tool call with everything kept about it: its whole command, output and patch. */
+  app.get("/sessions/:id/actions/:actionId", async (req, reply) => {
+    const p = req.principal!;
+    const { id, actionId } = req.params as { id: string; actionId: string };
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    const a = await store.getAction(p.orgId, id, actionId);
+    if (!a) return reply.code(404).send({ error: "Tessera has no record of that tool call. Calls are kept from this version on, for as long as the organisation keeps events." });
+    const full = canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id });
+    const keep = await dataSettingsFor(p.orgId);
+    return { action: forViewer(a, full), canSeeCode: full, keeps: { toolOutput: keep.toolOutput && keep.excerpts, edits: keep.editHistory && keep.excerpts } };
+  });
+
+  /** Every edit and write the session made whose patch was kept, oldest first: the change history. */
+  app.get("/sessions/:id/changes", async (req, reply) => {
+    const p = req.principal!;
+    const { id } = req.params as { id: string };
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    const keep = await dataSettingsFor(p.orgId);
+    const kept = keep.editHistory && keep.excerpts;
+    if (!canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id })) return { canSee: false, kept, changes: [] };
+    return { canSee: true, kept, changes: await store.listChanges(p.orgId, id) };
+  });
+
   app.get("/sessions/:id/diff", async (req, reply) => {
     const p = req.principal!;
     const { id } = req.params as { id: string };

@@ -116,6 +116,17 @@ function sanitise(r: Report, data: DataSettings = DEFAULT_DATA): void {
   for (const a of s.activity) {
     a.summary = t(a.summary, 300);
     a.error = a.error && t(a.error, 300);
+    const d = a.detail;
+    if (!d) continue;
+    if (d.command) d.command = t(d.command, 4000);
+    if (d.description) d.description = data.excerpts ? t(d.description, 500) : undefined;
+    if (d.path) d.path = t(d.path, 400);
+    if (d.pattern) d.pattern = t(d.pattern, 400);
+    if (d.url) d.url = t(d.url, 1000);
+    // Output and patches are code: kept only where the organisation turned them on.
+    if (d.output) d.output = data.toolOutput && data.excerpts ? { ...d.output, tail: t(d.output.tail, 6000) } : undefined;
+    if (d.patch) d.patch = data.editHistory && data.excerpts ? t(d.patch, 20_100) : undefined;
+    if (!d.patch) delete d.patchTruncated;
   }
   for (const a of s.agents) {
     a.description = a.description && t(a.description, 400);
@@ -178,6 +189,7 @@ export class Fleet {
   private outEvents = new Map<string, EventView[]>();
   /** Last written form of each agent, so a report only writes the agents that changed. */
   private agentSig = new Map<string, Map<string, string>>();
+  private actionSig = new Map<string, Map<string, string>>();
   /** Per-minute sample buckets waiting to be written. */
   private samples = new Map<string, store.SampleRow>();
   /** Last time each device's last_seen_at was written. */
@@ -200,10 +212,12 @@ export class Fleet {
         this.orgMap(m.orgId).set(rec.id, rec);
         this.lastTokens.delete(key);
         this.agentSig.delete(key);
+        this.actionSig.delete(key);
       } else {
         this.orgMap(m.orgId).delete(m.id);
         this.lastTokens.delete(`${m.orgId}:${m.id}`);
         this.agentSig.delete(`${m.orgId}:${m.id}`);
+        this.actionSig.delete(`${m.orgId}:${m.id}`);
       }
     });
   }
@@ -288,7 +302,17 @@ export class Fleet {
   // ---- ingest ----------------------------------------------------------
 
   async ingest(report: Report, device: DevicePrincipal, ip: string | undefined): Promise<ReportAck> {
-    sanitise(report, await dataSettingsFor(device.orgId));
+    const data = await dataSettingsFor(device.orgId);
+    sanitise(report, data);
+    // Output and patches go to the actions table only: the live record, broadcast to every
+    // viewer of the wall, carries each call's light detail, with a long command shortened.
+    const heavy = report.session.activity.filter((a) => a.detail?.output || a.detail?.patch);
+    const stored = report.session.activity.map((a) => ({ ...a }));
+    for (const a of report.session.activity) {
+      if (!a.detail) continue;
+      const { output: _o, patch: _p, patchTruncated: _t, ...light } = a.detail;
+      a.detail = { ...light, ...(light.command && light.command.length > 1000 ? { command: `${light.command.slice(0, 1000)}…` } : {}) };
+    }
     const now = new Date().toISOString();
     const s = report.session;
     const orgId = device.orgId;
@@ -366,6 +390,18 @@ export class Fleet {
     const fresh = written.freshEventIds;
     if (askChanged) await withTx((c) => this.syncAsk(c, existing, rec, now));
     for (const a of changedAgents) sigs.set(a.id, JSON.stringify(a));
+    // Every call goes to the actions table once, and again when it changes (it ends, or its output arrives).
+    const actSigs = this.actionSigs(key);
+    const changedActions = stored.filter((a) => actSigs.get(a.id) !== JSON.stringify(a));
+    let ackedActions: string[] = [];
+    try {
+      await store.upsertActions(ingestPool, orgId, s.id, changedActions);
+      for (const a of changedActions) actSigs.set(a.id, JSON.stringify(a));
+      ackedActions = heavy.map((a) => a.id);
+    } catch (e) {
+      // The session's state is stored; the history catches up with the next report, which sends the calls again.
+      this.log.error({ err: e, session: s.id }, "storing tool calls failed");
+    }
     this.bufferSample(orgId, s.id, now, total, delta, cost, usage, rec.contextUsed, rec.contextWindow);
     await this.touchDevice(device.deviceId, rec.hostname, rec.machineId);
 
@@ -396,6 +432,8 @@ export class Fleet {
       reporterSupport: compareMinor(report.reporter.version, config.reporterSupport.min, config.reporterSupport.max),
       // The owner's away setting decides how long the reporter holds a prompt for Tessera.
       presence: (await prefsFor(rec.ownerId).catch(() => null))?.presence ?? "auto",
+      ackedActions,
+      keep: { toolOutput: data.toolOutput && data.excerpts, edits: data.editHistory && data.excerpts },
     };
   }
 
@@ -753,6 +791,14 @@ export class Fleet {
     }
   }
 
+  private actionSigs(key: string): Map<string, string> {
+    let m = this.actionSig.get(key);
+    if (!m) this.actionSig.set(key, (m = new Map()));
+    // Only the last calls are ever re-sent; forget older ones.
+    if (m.size > 400) for (const k of [...m.keys()].slice(0, m.size - 200)) m.delete(k);
+    return m;
+  }
+
   private agentSigs(key: string): Map<string, string> {
     let m = this.agentSig.get(key);
     if (!m) this.agentSig.set(key, (m = new Map()));
@@ -792,6 +838,7 @@ export class Fleet {
     this.orgMap(orgId).delete(id);
     this.lastTokens.delete(`${orgId}:${id}`);
     this.agentSig.delete(`${orgId}:${id}`);
+    this.actionSig.delete(`${orgId}:${id}`);
     this.dirty.get(orgId)?.delete(id);
     this.hub.broadcast(orgId, { type: "removed", data: { id } });
     this.hub.replicate({ op: "remove", orgId, id });

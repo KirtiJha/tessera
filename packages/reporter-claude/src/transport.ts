@@ -36,7 +36,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
       ? { used: live.context.tokens, window: live.context.window }
       : transcriptContext && { ...transcriptContext, window: live.context.window }
     : transcriptContext;
-  return {
+  const report: Report = {
     v: 1,
     claimDeliveries: true,
     sentAt: new Date().toISOString(),
@@ -71,6 +71,7 @@ export function buildReport(cfg: Config, s: SessionState): Report {
     },
     events: s.outbox.slice(0, 500),
   };
+  return s.blockedText?.length ? maskBlocked(report, new Set(s.blockedText)) : report;
 }
 
 // ---- budgets sized to this network ------------------------------------------
@@ -177,7 +178,7 @@ export function withholdDetail(r: Report): Report {
     session: {
       ...s,
       name: null,
-      activity: s.activity.map((a) => ({ ...a, summary: `${a.tool}(…)`, error: a.error ? WITHHELD : null })),
+      activity: s.activity.map(({ detail: _d, ...a }) => ({ ...a, summary: `${a.tool}(…)`, error: a.error ? WITHHELD : null })),
       openAsk: s.openAsk
         ? {
             ...s.openAsk,
@@ -190,6 +191,69 @@ export function withholdDetail(r: Report): Report {
     },
     events: r.events.map((e) => ({ id: e.id, ts: e.ts, kind: e.kind, agentId: e.agentId, text: e.kind })),
   };
+}
+
+/**
+ * The report with only the tool calls and events a filter was found to block
+ * reduced to their shape (ids "a:<id>" and "e:<id>"); everything else is sent in full.
+ */
+export function maskBlocked(r: Report, blocked: Set<string>): Report {
+  const n = r.session.activity.filter((a) => blocked.has(`a:${a.id}`)).length + r.events.filter((e) => blocked.has(`e:${e.id}`)).length;
+  if (!n) return r;
+  return {
+    ...r,
+    session: {
+      ...r.session,
+      activity: r.session.activity.map(({ detail, ...a }) => (blocked.has(`a:${a.id}`) ? { ...a, summary: `${a.tool}(…)`, error: a.error ? WITHHELD : null, withheld: true } : { ...a, ...(detail ? { detail } : {}) })),
+      tags: { ...r.session.tags, "network-filter": `${n} withheld` },
+    },
+    events: r.events.map((e) => (blocked.has(`e:${e.id}`) ? { ...e, text: `${e.kind} (${WITHHELD})`, data: undefined } : e)),
+  };
+}
+
+/**
+ * Find which tool calls and events a filter blocks, by sending the report with
+ * the rest of the detail withheld and halves of the suspects in full until each
+ * blocked one stands alone. Most filters object to one or two command lines
+ * (a `curl` with `$(…)` in it, say); withholding only those keeps the rest of
+ * the session readable. Probes claim no deliveries. Returns null when the
+ * search ran out of requests, could not reach the server, or found that even
+ * the shape alone is blocked: then everything stays withheld.
+ */
+export async function findBlocked(cfg: Config, full: Report, timeoutMs: number, maxRequests = 24): Promise<string[] | null> {
+  const shape = withholdDetail(full);
+  let left = maxRequests;
+  const passes = async (r: Report): Promise<boolean> => {
+    if (left-- <= 0) throw new Error("out of probes");
+    const res = await request<ReportAck>(cfg, "POST", "/api/ingest/report", { ...r, claimDeliveries: false }, timeoutMs);
+    if (res.kind === "ok") return true;
+    if (res.kind === "blocked") return false;
+    throw new Error(res.kind);
+  };
+  const found: string[] = [];
+  const search = async <T>(items: T[], make: (sub: Set<T>) => Report, id: (t: T) => string): Promise<void> => {
+    if (!items.length || (await passes(make(new Set(items))))) return;
+    if (items.length === 1) {
+      found.push(id(items[0]!));
+      return;
+    }
+    const mid = items.length >> 1;
+    await search(items.slice(0, mid), make, id);
+    await search(items.slice(mid), make, id);
+  };
+  try {
+    if (!(await passes({ ...shape, events: [] }))) return null;
+    const real = new Map(full.session.activity.map((a) => [a.id, a]));
+    await search(
+      full.session.activity.map((a) => a.id),
+      (sub) => ({ ...shape, session: { ...shape.session, activity: shape.session.activity.map((a) => (sub.has(a.id) ? real.get(a.id)! : a)) }, events: [] }),
+      (aid) => `a:${aid}`,
+    );
+    await search(full.events, (sub) => ({ ...shape, session: { ...shape.session, activity: [] }, events: [...sub] }), (e) => `e:${e.id}`);
+    return found;
+  } catch {
+    return null;
+  }
 }
 
 export interface ReportSnapshot {

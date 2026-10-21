@@ -3,11 +3,12 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { clean, type AskDetail, type DecideRequest, type DecideResponse, type Question, type ReportAck, type SuggestedRule } from "@tessera/contract";
 import { log, type Config } from "./config.js";
-import { addEvent, deleteState, endAction, stash, startAction, takeInbox, updateState, workingIn, type AgentState, type SessionState } from "./state.js";
+import { addEvent, deleteState, endAction, forgetSent, stash, startAction, takeInbox, updateState, workingIn, type AgentState, type SessionState } from "./state.js";
 import { deleteLive } from "./live.js";
 import { collectDiff } from "./diff.js";
+import { callDetail, errorOutput, outputDetail } from "./detail.js";
 import { advance, newCursor } from "./transcript.js";
-import { budget, buildReport, get, gitFiles, gitInfo, gitTop, post, request, sendReport } from "./transport.js";
+import { budget, buildReport, findBlocked, get, gitFiles, gitInfo, gitTop, post, request, sendReport } from "./transport.js";
 
 /** What Claude Code pipes to a hook on stdin. Fields differ by event; all are optional here. */
 export interface HookInput {
@@ -274,6 +275,8 @@ async function report(cfg: Config, txn: Txn, timeoutMs: number): Promise<{ ack: 
     s.outbox = s.outbox.filter((e) => !acked.has(e.id));
     s.lastReportAt = Date.now();
     if (r.ack.presence) s.presence = r.ack.presence;
+    if (r.ack.keep) s.keep = r.ack.keep;
+    forgetSent(s, r.ack.ackedActions ?? []);
     return takeFresh(s, r.ack.deliveries);
   });
   return { ack: r.ack, fresh };
@@ -498,10 +501,39 @@ export async function heartbeat(cfg: Config, sid: string): Promise<boolean> {
   txn((s) => {
     s.outbox = s.outbox.filter((e) => !acked.has(e.id));
     s.lastReportAt = Date.now();
+    if (ack.keep) s.keep = ack.keep;
+    forgetSent(s, ack.ackedActions ?? []);
     takeFresh(s, ack.deliveries);
   });
   await runCommands(cfg, txn, sid);
   return true;
+}
+
+/**
+ * When a filter blocks this session's reports, find the few tool calls and
+ * events it objects to so only they are withheld, then report in full. Run by
+ * the keep-alive, off any hook's clock, at most every two minutes.
+ */
+export async function searchFilter(cfg: Config, sid: string): Promise<void> {
+  const txn: Txn = (fn) => updateState(sid, null, null, fn);
+  const full = txn((s) => {
+    if (!s.networkFiltered || Date.now() - (s.filterSearchedAt ?? 0) < 120_000) return null;
+    s.filterSearchedAt = Date.now();
+    refreshTranscripts(s);
+    refreshGit(s);
+    return buildReport(cfg, s);
+  });
+  if (!full) return;
+  const found = await findBlocked(cfg, full, budget(4000, 10_000));
+  if (!found) return;
+  txn((s) => {
+    const live = new Set([...(s.activity ?? []).map((a) => `a:${a.id}`), ...s.outbox.map((e) => `e:${e.id}`)]);
+    s.blockedText = [...new Set([...(s.blockedText ?? []).filter((k) => live.has(k)), ...found])].slice(-200);
+    // Try the full report, with only those withheld, straight away.
+    s.filterRetryAt = 0;
+    if (found.length) log(`${sid}: a web filter blocks ${found.length} item(s); withholding only those`);
+  });
+  await heartbeat(cfg, sid);
 }
 
 export async function handle(cfg: Config | null, event: string, input: HookInput): Promise<{ output: unknown; exitCode: number }> {
@@ -550,7 +582,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           settleTerminalAsk(s, agentId);
           const bucket = agentId ? s.agents[agentId]?.toolCalls : s.toolCalls;
           if (bucket) bucket[tool] = (bucket[tool] ?? 0) + 1;
-          startAction(s, actionId, tool, summary, agentId);
+          startAction(s, actionId, tool, summary, agentId, callDetail(tool, input.tool_input, workingIn(s), s.keep?.edits ?? false));
           if (tool === "Skill" && typeof input.tool_input?.skill === "string") {
             const a = agentId ? s.agents[agentId] : null;
             if (a) a.skills = [...new Set([...a.skills, String(input.tool_input.skill)])];
@@ -603,7 +635,8 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
         txn((s) => {
           settleTerminalAsk(s, currentAgentId(s), input.tool_name);
           s.status = s.openAsk ? s.status : "running";
-          endAction(s, input.tool_use_id, "ok", null, typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
+          const out = outputDetail(input.tool_name, input.tool_response);
+          endAction(s, input.tool_use_id, "ok", null, typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null, s.keep?.toolOutput ? out : { interrupted: out.interrupted });
           followWork(s, input.tool_name, input.tool_input);
         });
         break;
@@ -614,7 +647,7 @@ export async function handle(cfg: Config | null, event: string, input: HookInput
           const summary = toolSummary(input.tool_name, input.tool_input);
           const err = clean(String(input.error ?? "failed"), 500);
           settleTerminalAsk(s, agentId, input.tool_name);
-          endAction(s, input.tool_use_id, "failed", err.slice(0, 300), typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null);
+          endAction(s, input.tool_use_id, "failed", err.slice(0, 300), typeof input.duration_ms === "number" ? Math.round(input.duration_ms) : null, s.keep?.toolOutput ? errorOutput(String(input.error ?? "")) : undefined);
           addEvent(s, "tool.fail", `${summary} failed: ${err.slice(0, 200)}`, agentId);
           const a = agentId ? s.agents[agentId] : null;
           if (a) a.failure = { class: "tool_error", at: new Date().toISOString(), tool: input.tool_name ?? null, summary: `${summary}: ${err.slice(0, 300)}`, exitCode: null, outputTail: err.split("\n").slice(-12) };

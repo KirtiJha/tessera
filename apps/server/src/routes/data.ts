@@ -65,7 +65,7 @@ export async function dataRoutes(app: FastifyInstance, opts: { fleet: Fleet }): 
     const body = DataSettingsSchema.omit({ legalHold: true }).parse(req.body);
     const next = { ...body, legalHold: cur.legalHold };
     await saveDataSettings(p.orgId, next);
-    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "data.settings", detail: { excerpts: next.excerpts, explainFailures: next.explainFailures, dlp: { ...next.dlp, terms: next.dlp.terms.length }, retainSamplesDays: next.retainSamplesDays, retainEventsDays: next.retainEventsDays, retainSessionsDays: next.retainSessionsDays }, ip: req.ip });
+    await audit({ orgId: p.orgId, actorId: p.userId, actorName: p.name, action: "data.settings", detail: { excerpts: next.excerpts, explainFailures: next.explainFailures, toolOutput: next.toolOutput, editHistory: next.editHistory, dlp: { ...next.dlp, terms: next.dlp.terms.length }, retainSamplesDays: next.retainSamplesDays, retainEventsDays: next.retainEventsDays, retainSessionsDays: next.retainSessionsDays }, ip: req.ip });
     return { ok: true };
   });
 

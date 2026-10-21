@@ -207,6 +207,39 @@ export const OpenAsk = z.object({
 export type OpenAsk = z.infer<typeof OpenAsk>;
 
 /** One tool call, as it runs: what the live wall shows as "now doing" and what an approver sees as "what led here". */
+/**
+ * What a tool call was, beyond its one-line summary: the whole command and its
+ * description, the path or pattern, and lines added and removed by an edit.
+ * Two parts are kept only where the organisation turned them on: `output`, the
+ * last lines a command printed, and `patch`, what an edit or write changed.
+ * The reporter sends those once; the server keeps them with the call.
+ */
+export const ActionDetail = z.object({
+  command: short(4000).optional(),
+  description: short(500).optional(),
+  path: short(400).optional(),
+  pattern: short(400).optional(),
+  url: short(1000).optional(),
+  /** Lines an edit or write added and removed. */
+  added: z.number().int().nonnegative().optional(),
+  removed: z.number().int().nonnegative().optional(),
+  /** The command was interrupted (Esc, or a timeout). */
+  interrupted: z.boolean().optional(),
+  output: z
+    .object({
+      /** The last lines printed, stdout then stderr, redacted. */
+      tail: short(6000),
+      /** Lines printed in all. */
+      lines: z.number().int().nonnegative(),
+      truncated: z.boolean().default(false),
+    })
+    .optional(),
+  /** A unified diff of what the edit or write changed, redacted and capped. */
+  patch: short(20_100).optional(),
+  patchTruncated: z.boolean().optional(),
+});
+export type ActionDetail = z.infer<typeof ActionDetail>;
+
 export const Action = z.object({
   id: id,
   ts: z.string().datetime(),
@@ -217,6 +250,9 @@ export const Action = z.object({
   endedAt: z.string().datetime().nullable().default(null),
   durationMs: z.number().int().nonnegative().nullable().default(null),
   error: short(300).nullable().default(null),
+  /** Its text was withheld because a web filter on the engineer's network blocks it. */
+  withheld: z.boolean().optional(),
+  detail: ActionDetail.optional(),
 });
 export type Action = z.infer<typeof Action>;
 
@@ -346,6 +382,10 @@ export const ReportAck = z.object({
    * minutes), or "auto" (the machine's own setting).
    */
   presence: Presence.default("auto"),
+  /** Tool calls whose output or patch the server now keeps, so the reporter need not send them again. */
+  ackedActions: z.array(z.string()).default([]),
+  /** What the organisation keeps beyond metadata: commands' output, and edits' patches. */
+  keep: z.object({ toolOutput: z.boolean(), edits: z.boolean() }).default({ toolOutput: false, edits: false }),
 });
 export type ReportAck = z.infer<typeof ReportAck>;
 

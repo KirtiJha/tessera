@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, HOME, VERSION, loadConfig, log, newMachineId, saveConfig, shortHostname } from "./config.js";
-import { alive, handle, heartbeat, type HookInput } from "./hooks.js";
+import { alive, handle, heartbeat, searchFilter, type HookInput } from "./hooks.js";
 import { hasState, updateState } from "./state.js";
 import { claudeLoadsMods, disableMod, enableMod, MARKETPLACE_DIR, modInstalled, writeMod } from "./mod.js";
 import { get, request, typicalLatencyMs } from "./transport.js";
@@ -279,8 +279,9 @@ export async function main(args: string[]): Promise<void> {
       for (;;) {
         await new Promise((r) => setTimeout(r, every));
         if (Date.now() > until || !alive(claude) || !hasState(sid) || codeStamp() !== built) return;
-        const st = updateState(sid, null, null, (s) => ({ mine: s.keepalivePid === process.pid, ended: s.status === "ended", quietFor: Date.now() - (s.lastReportAt ?? 0) }));
+        const st = updateState(sid, null, null, (s) => ({ mine: s.keepalivePid === process.pid, ended: s.status === "ended", quietFor: Date.now() - (s.lastReportAt ?? 0), filtered: s.networkFiltered ?? false }));
         if (!st.mine || st.ended) return;
+        if (st.filtered) await searchFilter(cfg, sid).catch((e) => log(`keepalive ${sid}: filter search: ${(e as Error).message}`));
         // Hooks report on their own while Claude Code is busy; only fill the gaps.
         if (st.quietFor >= every) await heartbeat(cfg, sid).catch((e) => log(`keepalive ${sid}: ${(e as Error).message}`));
       }

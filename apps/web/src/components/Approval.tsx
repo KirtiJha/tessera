@@ -1,7 +1,8 @@
 import type { Action, AgentView, AskDetail, RiskFlag } from "@tessera/contract";
 import { AlertTriangle, Check, ChevronDown, Loader2, ShieldAlert, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ago, fmtTime } from "../lib/format";
+import { CallDetail } from "./CallDetail";
 import { ExplainFailure } from "./ExplainFailure";
 
 /** A flag an approver should see before deciding, coloured by how much it matters. */
@@ -134,8 +135,12 @@ type ActionFilter = "all" | "failed" | "running";
  * The last tool calls, newest first, so an approver sees what led to the prompt and a watcher sees what is happening.
  * A row opens to the whole call: tool, agent, when, how long, and the full summary and error.
  */
-/** `explainIn`: the session id, where failures can be explained by Claude (the organisation turned it on). */
-export function ActionList({ actions, agents = [], now, limit, title, filterable = false, explainIn }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean; explainIn?: string }) {
+/**
+ * `explainIn`: the session id, where failures can be explained by Claude (the organisation turned it on).
+ * `sessionId`: open rows read everything kept about the call (command, output, patch) from the server.
+ * `footer`: below the list, such as a way to load older calls.
+ */
+export function ActionList({ actions, agents = [], now, limit, title, filterable = false, explainIn, sessionId, footer }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean; explainIn?: string; sessionId?: string; footer?: ReactNode }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [all, setAll] = useState(false);
   const [filter, setFilter] = useState<ActionFilter>("all");
@@ -185,14 +190,14 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
                 <button type="button" onClick={() => toggle(a.id)} aria-expanded={isOpen} aria-controls={`action-${a.id}`} className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-slate-1 focus:outline-none focus-visible:bg-slate-1">
                   <span className="mt-0.5 shrink-0"><StatusMark status={a.status} /></span>
                   <span className="min-w-0 flex-1">
-                    <span className={`block font-mono text-mist ${isOpen ? "whitespace-pre-wrap break-words" : "truncate"}`}>{a.summary}</span>
+                    <span className={`block font-mono text-mist ${isOpen ? "whitespace-pre-wrap break-words" : "truncate"}`}>{a.summary}{a.withheld ? <span className="ml-1.5 font-sans text-[11px] text-amber-400">text withheld by a network filter</span> : null}</span>
                     {a.error && !isOpen ? <span className="block truncate text-rose-400">{a.error}</span> : null}
                   </span>
                   <span className="shrink-0 text-[11px] text-fog">{when}</span>
                   <ChevronDown size={12} className={`mt-0.5 shrink-0 text-ash transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
                 </button>
                 {isOpen ? (
-                  <dl id={`action-${a.id}`} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t border-line bg-slate-1 px-2.5 py-2 pl-8 text-[11.5px] text-mist">
+                  <dl id={`action-${a.id}`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-line bg-slate-1 px-2.5 py-2 pl-8 text-[11.5px] text-mist">
                     <dt className="text-ash">Tool</dt>
                     <dd className="font-mono">{a.tool}</dd>
                     {agent ? (
@@ -213,6 +218,7 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
                         <dd className="whitespace-pre-wrap break-words font-mono text-rose-400">{a.error}</dd>
                       </>
                     ) : null}
+                    {sessionId ? <CallDetail sessionId={sessionId} action={a} /> : null}
                     {explainIn && a.status === "failed" ? <dd className="col-span-2"><ExplainFailure sessionId={explainIn} target={{ kind: "action", id: a.id }} /></dd> : null}
                   </dl>
                 ) : null}
@@ -223,6 +229,7 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
       ) : (
         <p className="text-[12.5px] text-fog">No {filter} tool calls.</p>
       )}
+      {footer}
       {limit && matching.length > limit ? (
         <button type="button" onClick={() => setAll(!all)} className="mt-1.5 text-[12px] text-fog hover:text-snow">
           {all ? "Show fewer" : `Show all ${matching.length}`}

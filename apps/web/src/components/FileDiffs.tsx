@@ -36,10 +36,9 @@ const TONE: Record<Row["kind"], string> = {
   note: "text-ash italic",
 };
 
-function DiffBlock({ file }: { file: DiffFile }) {
-  if (file.binary) return <p className="px-3 py-2 text-[12.5px] text-fog">Binary, or too large to show.</p>;
-  if (!file.diff) return <p className="px-3 py-2 text-[12.5px] text-fog">{file.truncated ? "Left out: the diff reached its size limit before this file." : "No line changes (a mode or rename only)."}</p>;
-  const rows = diffRows(file.diff);
+/** A unified diff as a numbered, coloured table: a file's live diff, or one edit's patch from the change history. */
+export function PatchView({ patch, truncated = false, note }: { patch: string; truncated?: boolean; note?: string }) {
+  const rows = diffRows(patch);
   return (
     <div className="max-h-[480px] overflow-auto">
       <table className="w-full border-collapse font-mono text-[12px] leading-[1.55]">
@@ -54,9 +53,15 @@ function DiffBlock({ file }: { file: DiffFile }) {
           ))}
         </tbody>
       </table>
-      {file.truncated ? <p className="border-t border-line px-3 py-1.5 text-[12px] text-amber-400">Cut at 20,000 characters. The rest is on the engineer's machine.</p> : null}
+      {truncated ? <p className="border-t border-line px-3 py-1.5 text-[12px] text-amber-400">{note ?? "Cut at 20,000 characters. The rest is on the engineer's machine."}</p> : null}
     </div>
   );
+}
+
+function DiffBlock({ file }: { file: DiffFile }) {
+  if (file.binary) return <p className="px-3 py-2 text-[12.5px] text-fog">Binary, or too large to show.</p>;
+  if (!file.diff) return <p className="px-3 py-2 text-[12.5px] text-fog">{file.truncated ? "Left out: the diff reached its size limit before this file." : "No line changes (a mode or rename only)."}</p>;
+  return <PatchView patch={file.diff} truncated={file.truncated} />;
 }
 
 const STATUS_TONE = (st: ChangedFile["status"]) => (st === "deleted" ? "text-rose-400" : st === "added" || st === "untracked" ? "text-teal-300" : "text-fog");
