@@ -1,6 +1,6 @@
 import type { Action, AgentView } from "@tessera/contract";
 import { describe, expect, it } from "vitest";
-import { agentColors, agentLanes } from "./agents";
+import { agentColors, agentLanes, agentNames } from "./agents";
 
 const agent = (id: string, over: Partial<AgentView> = {}) => ({ id, parentId: null, kind: "subagent", type: id, description: null, status: "running", startedAt: "2026-10-27T10:00:00.000Z", endedAt: null, ...over }) as AgentView;
 let n = 0;
@@ -45,5 +45,12 @@ describe("agentColors", () => {
     expect(later.get("a")).toBe(first.get("a"));
     expect(later.get("b")).toBe(first.get("b"));
     expect(new Set(later.values()).size).toBe(3);
+  });
+});
+
+describe("agentNames", () => {
+  it("numbers agents of the same type in the order they started, and leaves a lone one plain", () => {
+    const names = agentNames([agent("b", { type: "general-purpose", startedAt: "2026-10-27T10:05:00.000Z" }), agent("a", { type: "general-purpose" }), agent("e", { type: "Explore" })]);
+    expect([names.get("a"), names.get("b"), names.get("e")]).toEqual(["general-purpose 1", "general-purpose 2", "Explore"]);
   });
 });

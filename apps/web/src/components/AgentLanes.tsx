@@ -20,11 +20,12 @@ const STATUS: Record<AgentView["status"], { label: string; cls: string }> = {
  * each says what it is doing now, and opens to its own calls, with its whole
  * history from the server on request.
  */
-export function AgentLanes({ sessionId, actions, agents, now, explainIn }: { sessionId: string; actions: Action[]; agents: AgentView[]; now: number; explainIn?: string }) {
-  const lanes = useMemo(() => agentLanes(agents, actions), [agents, actions]);
+export function AgentLanes({ sessionId, actions, agents, now, explainIn, only }: { sessionId: string; actions: Action[]; agents: AgentView[]; now: number; explainIn?: string; only?: string }) {
+  const all = useMemo(() => agentLanes(agents, actions), [agents, actions]);
+  const lanes = only ? all.filter((l) => l.key === only) : all;
   // Lanes start open while they work; a person's choice then sticks.
   const [opened, setOpened] = useState<Record<string, boolean>>({});
-  const isOpen = (l: Lane) => opened[l.key] ?? (l.agent ? l.agent.status === "running" : l.running.length > 0 || lanes.length === 1);
+  const isOpen = (l: Lane) => opened[l.key] ?? (only ? true : l.agent ? l.agent.status === "running" : l.running.length > 0 || lanes.length === 1);
   return (
     <div className="space-y-2">
       {lanes.map((l) => (

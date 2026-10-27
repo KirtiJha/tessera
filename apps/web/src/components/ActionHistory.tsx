@@ -1,5 +1,6 @@
 import type { Action, AgentView } from "@tessera/contract";
 import { useState } from "react";
+import { useAgentFocus } from "../lib/agentFocus";
 import { api, ApiError } from "../lib/api";
 import { AgentLanes } from "./AgentLanes";
 import { ActionList } from "./Approval";
@@ -19,6 +20,7 @@ export function ActionHistory({ sessionId, live, agents, now, explainIn }: { ses
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const { focus } = useAgentFocus();
   const hasAgents = agents.some((a) => a.kind !== "orchestrator");
   const [byAgent, setByAgent] = useState(() => agents.some((a) => a.kind !== "orchestrator" && a.status === "running"));
 
@@ -57,6 +59,8 @@ export function ActionHistory({ sessionId, live, agents, now, explainIn }: { ses
   const tab = (on: boolean, label: string) => (
     <button type="button" role="tab" aria-selected={byAgent === on} onClick={() => setByAgent(on)} className={`rounded-md px-2 py-0.5 ${byAgent === on ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>{label}</button>
   );
+  // Focused on one agent, the page shows just its lane.
+  if (focus) return <AgentLanes key={focus} sessionId={sessionId} actions={all} agents={agents} now={now} explainIn={explainIn} only={focus} />;
   if (!hasAgents) return <ActionList actions={all} agents={agents} now={now} limit={older ? undefined : 12} filterable explainIn={explainIn} sessionId={sessionId} footer={footer} />;
   return (
     <div>

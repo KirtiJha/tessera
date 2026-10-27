@@ -351,6 +351,15 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     return { canSee: true, kept, changes: await store.listChanges(p.orgId, id) };
   });
 
+  /** Which agent edited which file, so the console can show each agent's files apart. Paths only, as tool calls already show. */
+  app.get("/sessions/:id/touched", async (req, reply) => {
+    const p = req.principal!;
+    const { id } = req.params as { id: string };
+    const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
+    if (!rec) return reply.code(404).send({ error: "no such session" });
+    return { touched: await store.listTouched(p.orgId, id) };
+  });
+
   app.get("/sessions/:id/diff", async (req, reply) => {
     const p = req.principal!;
     const { id } = req.params as { id: string };

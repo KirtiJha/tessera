@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { keyOf, useAgentFocus } from "../lib/agentFocus";
 import { api } from "../lib/api";
 import { fmtDuration, fmtTime } from "../lib/format";
 
@@ -33,6 +34,9 @@ const AGENT_TONE: Record<string, string> = { running: "var(--color-teal-400)", d
 export function SessionTimeline({ id, live, onSeek }: { id: string; live: boolean; onSeek?: (secondsFromStart: number) => void }) {
   const [data, setData] = useState<Data | null>(null);
   const [now, setNow] = useState(Date.now());
+  const { focus, actor } = useAgentFocus();
+  // The session's own lane stands for its main work when that is in focus.
+  const dim = (laneId: string) => focus !== null && (laneId === "session" ? focus !== "main" : laneId !== focus);
   useEffect(() => {
     let alive = true;
     const load = () => api.get<Data>(`/api/fleet/sessions/${encodeURIComponent(id)}/timeline`).then((d) => alive && setData(d)).catch(() => {});
@@ -106,9 +110,13 @@ export function SessionTimeline({ id, live, onSeek }: { id: string; live: boolea
         {/* lanes */}
         {lanes.map((l, i) => {
           const y = 28 + i * ROW;
+          const who = i === 0 ? null : actor(l.id);
+          const hue = who?.color ?? null;
+          const label = who && who.label !== "agent" ? who.label : l.label;
           return (
-            <g key={l.id}>
-              <text x={LEFT - 6} y={y + 14} textAnchor="end" fill={i === 0 ? "var(--color-snow)" : "var(--color-mist)"} fontWeight={i === 0 ? 600 : 400}>{l.label.length > 18 ? `${l.label.slice(0, 17)}…` : l.label}</text>
+            <g key={l.id} opacity={dim(l.id) ? 0.3 : 1}>
+              {hue ? <rect x={LEFT - 3} y={y + 5} width={2} height={12} fill={hue} /> : null}
+              <text x={LEFT - 6} y={y + 14} textAnchor="end" fill={i === 0 ? "var(--color-snow)" : (hue ?? "var(--color-mist)")} fontWeight={i === 0 || !dim(l.id) && focus ? 600 : 400}>{label.length > 18 ? `${label.slice(0, 17)}…` : label}</text>
               <rect x={x(l.start)} y={y + 5} width={Math.max(2, x(l.end) - x(l.start))} height={12} rx={3} fill={AGENT_TONE[l.status] ?? "var(--color-slate-3)"} opacity={i === 0 ? 0.35 : 0.9}>
                 <title>{`${l.label} · ${l.status} · ${fmtDuration(l.end - l.start)}`}</title>
               </rect>
@@ -122,7 +130,7 @@ export function SessionTimeline({ id, live, onSeek }: { id: string; live: boolea
           const lane = Math.max(0, lanes.findIndex((l) => l.id === e.agentId));
           const cx = x(Date.parse(e.ts));
           const cy = 28 + lane * ROW + 11;
-          return <path key={e.id} d={`M${cx} ${cy - 5} L${cx + 5} ${cy} L${cx} ${cy + 5} L${cx - 5} ${cy} Z`} fill="var(--color-rose-400)" style={clickable} onClick={seek?.(e.ts)}><title>{`${e.text}${onSeek ? "\nClick to replay from here" : ""}`}</title></path>;
+          return <path key={e.id} d={`M${cx} ${cy - 5} L${cx + 5} ${cy} L${cx} ${cy + 5} L${cx - 5} ${cy} Z`} fill="var(--color-rose-400)" opacity={focus && keyOf(e.agentId) !== focus ? 0.3 : 1} style={clickable} onClick={seek?.(e.ts)}><title>{`${e.text}${onSeek ? "\nClick to replay from here" : ""}`}</title></path>;
         })}
         {model.denials.map((d, i) => <circle key={i} cx={x(Date.parse(d.ts))} cy={39} r={3.5} fill="var(--color-violet-400)" style={clickable} onClick={seek?.(d.ts)}><title>{`policy "${d.rule}" denied ${d.tool}${d.summary ? `: ${d.summary}` : ""}`}</title></circle>)}
         {hasCtx ? (

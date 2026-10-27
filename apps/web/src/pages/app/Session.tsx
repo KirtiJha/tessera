@@ -15,6 +15,8 @@ import { WorkedIn } from "../../components/WorkedIn";
 import { ActionHistory } from "../../components/ActionHistory";
 import { ChangeHistory } from "../../components/ChangeHistory";
 import { HELP } from "../../lib/help";
+import { ActorTag, AgentFocusProvider, useAgentFocus, type Touched } from "../../lib/agentFocus";
+import { agentColors, agentLanes, agentNames, MAIN } from "../../lib/agents";
 import { ExplainFailure } from "../../components/ExplainFailure";
 import { SessionSummary } from "../../components/SessionSummary";
 import { SessionTimeline } from "../../components/SessionTimeline";
@@ -53,12 +55,14 @@ function AgentTree({ agents, selected, onSelect }: { agents: AgentView[]; select
     return m;
   }, [agents]);
   const ids = new Set(agents.map((a) => a.id));
+  const colors = useMemo(() => agentColors(agents), [agents]);
+  const names = useMemo(() => agentNames(agents), [agents]);
   const roots = agents.filter((a) => !a.parentId || !ids.has(a.parentId));
   const render = (a: AgentView, depth: number): React.ReactNode => (
     <div key={a.id}>
-      <button onClick={() => onSelect(a.id)} className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-slate-2 ${selected === a.id ? "bg-slate-2" : ""}`} style={{ paddingLeft: 8 + depth * 16 }}>
+      <button onClick={() => onSelect(a.id)} aria-pressed={selected === a.id} title={selected === a.id ? "Show everyone's work again" : "Show only this agent's work across the page"} className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-slate-2 ${selected === a.id ? "bg-slate-2" : ""}`} style={{ paddingLeft: 8 + depth * 16, boxShadow: selected === a.id ? `inset 2px 0 0 ${colors.get(a.id)}` : undefined }}>
         <span className={`h-2.5 w-2.5 shrink-0 rounded-[3px] ${a.status === "running" ? "bg-teal-400 dot-live" : a.status === "failed" ? "bg-rose-400" : a.status === "aborted" ? "bg-amber-500" : "bg-slate-3"}`} />
-        <span className="truncate text-snow">{a.type ?? a.kind}</span>
+        <span className="truncate font-medium" style={{ color: colors.get(a.id) }}>{names.get(a.id)}</span>
         <span className="truncate text-fog">{a.description}</span>
         <span className="ml-auto shrink-0 text-[11.5px] text-fog">{modelShort(a.model)} · {fmtUsd(a.costUsd)}</span>
       </button>
@@ -300,7 +304,9 @@ export function SessionPage() {
   const liveView = sessions.get(id);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [agent, setAgent] = useState<string | null>(null);
+  // Which agent's work the page shows: an agent's id, MAIN for the session's own, or null for everyone.
+  const [focus, setFocus] = useState<string | null>(null);
+  const [touched, setTouched] = useState<Touched[]>([]);
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "replay" ? "replay" : "overview";
   // On a phone, what needs an answer comes first; on a wide screen it sits beside the detail.
@@ -318,6 +324,19 @@ export function SessionPage() {
     const t = setInterval(() => void load(), 10_000);
     return () => clearInterval(t);
   }, [load]);
+  // Who edited which file, so each agent's files can be shown apart.
+  const running = (liveView ?? detail?.session)?.status !== "ended";
+  useEffect(() => {
+    let gone = false;
+    const read = () => api.get<{ touched: Touched[] }>(`/api/fleet/sessions/${encodeURIComponent(id)}/touched`).then((r) => !gone && setTouched(r.touched)).catch(() => {});
+    void read();
+    const t = running ? setInterval(() => void read(), 30_000) : null;
+    return () => {
+      gone = true;
+      if (t) clearInterval(t);
+    };
+  }, [id, running]);
+  useEffect(() => setFocus(null), [id]);
 
   if (err) return <div className="p-6 text-[14px] text-rose-400">{err}</div>;
   if (!detail) return <div className="flex h-64 items-center justify-center"><Spinner /></div>;
@@ -327,13 +346,15 @@ export function SessionPage() {
   const k = KIND[kind];
   const now = Date.now();
   const elapsed = (s.endedAt ? Date.parse(s.endedAt) : now) - Date.parse(s.startedAt);
-  const selectedAgent = s.agents.find((a) => a.id === agent) ?? null;
+  const selectedAgent = s.agents.find((a) => a.id === focus) ?? null;
+  // Sections that cannot be split by agent say so while one is in focus.
+  const whole = (title: string) => (focus ? <>{title}<span className="ml-2 text-[11.5px] font-normal text-fog">whole session</span></> : title);
   const plan = s.plan?.steps ?? [];
   const tokSeries = detail.series.map((p) => p.tokens);
 
   const respond = (
     <Panel
-      title="Respond"
+      title={whole("Respond")}
       action={
         detail.live && detail.canAct ? (
           <button onClick={() => void api.post(`/api/fleet/sessions/${encodeURIComponent(s.id)}/drop`).then(() => { toast("Removed from the wall."); nav("/app"); })} className="inline-flex items-center gap-1 text-[12px] text-fog hover:text-rose-400" title="Remove from the live wall (the session itself keeps running)">
@@ -347,6 +368,7 @@ export function SessionPage() {
   );
 
   return (
+    <AgentFocusProvider agents={s.agents} touched={touched} focus={focus} setFocus={setFocus}>
     <div className="p-3 sm:p-5">
       <Link to="/app" className="inline-flex items-center gap-1.5 text-[13px] text-fog hover:text-snow"><ArrowLeft size={14} /> Live wall</Link>
 
@@ -408,6 +430,8 @@ export function SessionPage() {
         <Link to={`/app/compare?a=${encodeURIComponent(s.id)}`} className="ml-auto hidden pb-1 text-[12.5px] sm:block text-fog hover:text-teal-300">Compare with another session →</Link>
       </div>
 
+      {tab === "overview" && s.agents.some((a) => a.kind !== "orchestrator") ? <FocusBar s={s} /> : null}
+
       {tab === "replay" ? (
         <div className="mt-4"><Panel><Replay sessionId={s.id} live={detail.live} /></Panel></div>
       ) : (
@@ -417,8 +441,8 @@ export function SessionPage() {
             {s.context ? <div className="mb-3"><ContextBar used={s.context.used} window={s.context.window} blowouts={s.blowouts} /></div> : null}
             {s.agents.length ? (
               <div className="grid gap-4 md:grid-cols-[minmax(12rem,2fr)_minmax(0,3fr)]">
-                <AgentTree agents={s.agents} selected={agent} onSelect={setAgent} />
-                <div className="min-w-0 rounded-lg border border-line bg-ink-2 p-3">{selectedAgent ? <AgentDetail a={selectedAgent} explainIn={detail.canExplain ? s.id : undefined} /> : <p className="text-[13px] text-fog">Select an agent to see its tools, cost and any failure.</p>}</div>
+                <AgentTree agents={s.agents} selected={focus} onSelect={(a) => setFocus((f) => (f === a ? null : a))} />
+                <div className="min-w-0 rounded-lg border border-line bg-ink-2 p-3">{selectedAgent ? <AgentDetail a={selectedAgent} explainIn={detail.canExplain ? s.id : undefined} /> : <p className="text-[13px] text-fog">{focus === MAIN ? "Showing the session's own work, outside any agent." : "Select an agent to see its tools, cost and any failure, and to show only its work across the page."}</p>}</div>
               </div>
             ) : (
               <div className="flex items-center gap-3 text-[13px] text-fog"><AgentStrip s={s} /></div>
@@ -429,7 +453,7 @@ export function SessionPage() {
             <SessionTimeline id={s.id} live={detail.live} onSeek={(t) => setParams({ tab: "replay", t: String(t) })} />
           </Panel>
 
-          <Panel title="Tokens and cost">
+          <Panel title={whole("Tokens and cost")}>
             <UsageBreakdown s={s} />
           </Panel>
 
@@ -437,7 +461,7 @@ export function SessionPage() {
             <ActionHistory sessionId={s.id} live={s.activity} agents={s.agents} now={now} explainIn={detail.canExplain ? s.id : undefined} />
           </Panel>
 
-          <Panel title={s.plan?.title ? `Plan · ${s.plan.title}` : "Plan"}>
+          <Panel title={whole(s.plan?.title ? `Plan · ${s.plan.title}` : "Plan")}>
             {plan.length ? (
               <ol className="space-y-1.5">
                 {plan.map((p) => (
@@ -466,7 +490,7 @@ export function SessionPage() {
         <div className="min-w-0 space-y-4">
           {wide ? respond : null}
 
-          <Panel title="Questions and answers">
+          <Panel title={whole("Questions and answers")}>
             {detail.asks.length ? (
               <ul className="space-y-3">
                 {detail.asks.map((a) => (
@@ -482,23 +506,73 @@ export function SessionPage() {
             )}
           </Panel>
 
-          <Panel title="Events">
-            {detail.events.length ? (
-              <ul className="max-h-[420px] space-y-2 overflow-auto">
-                {detail.events.map((e) => (
-                  <li key={e.id} className="text-[12.5px]">
-                    <span className="text-fog">{new Date(e.ts).toLocaleTimeString()} </span>
-                    <span className={e.kind === "agent.fail" || e.kind === "tool.fail" || e.kind === "context.blowout" ? "text-rose-400" : e.kind === "wait" ? "text-amber-400" : "text-mist"}>{e.text}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-[13px] text-fog">No events recorded.</p>
-            )}
-          </Panel>
+          <Events events={detail.events} />
         </div>
       </div>
       )}
+    </div>
+    </AgentFocusProvider>
+  );
+}
+
+/** The session's events, each tagged with the agent it came from; with one in focus, only that agent's. */
+function Events({ events }: { events: EventView[] }) {
+  const { focus, inFocus, actor, split } = useAgentFocus();
+  const shown = events.filter((e) => inFocus(e.agentId));
+  return (
+    <Panel title={focus ? `Events · ${actor(focus === MAIN ? null : focus).label}` : "Events"}>
+      {shown.length ? (
+        <ul className="max-h-[420px] space-y-2 overflow-auto">
+          {shown.map((e) => (
+            <li key={e.id} className="text-[12.5px]">
+              <span className="text-fog">{new Date(e.ts).toLocaleTimeString()} </span>
+              {split && !focus && e.agentId ? <ActorTag actor={actor(e.agentId)} className="mr-1.5 align-middle" /> : null}
+              <span className={e.kind === "agent.fail" || e.kind === "tool.fail" || e.kind === "context.blowout" ? "text-rose-400" : e.kind === "wait" ? "text-amber-400" : "text-mist"}>{e.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[13px] text-fog">{events.length ? `No events from this ${focus === MAIN ? "session's own work" : "agent"}.` : "No events recorded."}</p>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * Who the page is showing: everyone, the session's own work, or one agent. It
+ * stays at the top while the page scrolls, so the focus is never out of sight.
+ */
+function FocusBar({ s }: { s: SessionView }) {
+  const { focus, setFocus, actor } = useAgentFocus();
+  const lanes = useMemo(() => agentLanes(s.agents, s.activity), [s.agents, s.activity]);
+  const chip = (key: string | null, label: string, color: string | null, live: boolean, failed: boolean) => {
+    const on = focus === key;
+    return (
+      <button
+        key={key ?? "all"}
+        type="button"
+        aria-pressed={on}
+        onClick={() => setFocus(on && key ? null : key)}
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] ${on ? "border-line-2 bg-slate-3 text-snow" : "border-transparent text-fog hover:text-snow"}`}
+      >
+        {key ? <i className={`inline-block h-2 w-2 rounded-full ${live ? "dot-live" : ""}`} style={{ background: failed ? "var(--color-rose-400)" : (color ?? "var(--color-line-2)") }} /> : null}
+        <span style={on || !color ? undefined : { color }}>{label}</span>
+      </button>
+    );
+  };
+  const current = focus ? actor(focus === MAIN ? null : focus) : null;
+  return (
+    <div className="sticky top-0 z-20 -mx-3 border-b border-line bg-ink/95 px-3 py-2 backdrop-blur sm:-mx-5 sm:px-5">
+      <div className="flex items-center gap-1 overflow-x-auto" role="group" aria-label="Show the work of">
+        <span className="mr-1 shrink-0 text-[11.5px] text-ash">Show</span>
+        {chip(null, "Everyone", null, false, false)}
+        {lanes.map((l) => chip(l.key, l.key === MAIN ? "Main session" : l.label, l.color, l.agent ? l.agent.status === "running" : l.running.length > 0, l.agent?.status === "failed"))}
+      </div>
+      {current ? (
+        <p className="mt-1 text-[11.5px] text-fog">
+          Activity, timeline, events, change history and files changed show only <span style={{ color: current.color ?? undefined }} className="font-medium">{focus === MAIN ? "the session's own work" : current.label}</span>. Respond, plan, questions and cost are for the whole session.
+        </p>
+      ) : null}
     </div>
   );
 }

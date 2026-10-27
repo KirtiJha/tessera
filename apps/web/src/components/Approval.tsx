@@ -1,7 +1,7 @@
 import type { Action, AgentView, AskDetail, RiskFlag } from "@tessera/contract";
 import { AlertTriangle, Check, ChevronDown, Loader2, ShieldAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { agentColors, agentLabel } from "../lib/agents";
+import { agentColors, agentNames } from "../lib/agents";
 import { ago, fmtTime } from "../lib/format";
 import { CallDetail } from "./CallDetail";
 import { ExplainFailure } from "./ExplainFailure";
@@ -149,11 +149,9 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
   const counts = useMemo(() => ({ all: actions.length, failed: actions.filter((a) => a.status === "failed" || a.status === "denied").length, running: actions.filter((a) => a.status === "running").length }), [actions]);
   const matching = filter === "all" ? newestFirst : filter === "failed" ? newestFirst.filter((a) => a.status === "failed" || a.status === "denied") : newestFirst.filter((a) => a.status === "running");
   const list = all || !limit ? matching : matching.slice(0, limit);
-  const agentName = (id: string | null) => {
-    const a = id ? agents.find((x) => x.id === id) : undefined;
-    return a ? agentLabel(a) : null;
-  };
   const colors = useMemo(() => agentColors(agents), [agents]);
+  const names = useMemo(() => agentNames(agents), [agents]);
+  const agentName = (id: string | null) => (id ? (names.get(id) ?? null) : null);
   const toggle = (id: string) =>
     setOpen((prev) => {
       const next = new Set(prev);

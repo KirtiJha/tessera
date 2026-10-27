@@ -114,4 +114,18 @@ describe.skipIf(!reachable)("a session's tool-call history and change history", 
     expect(main.filter((id: string) => id.startsWith("g"))).toEqual([]);
     expect(main.length).toBe(47);
   });
+
+  it("says which agent edited which file", async () => {
+    const ok = { status: "ok", endedAt: t(3), durationMs: 1, error: null };
+    await report([
+      { ...ok, id: "w1", ts: t(4), tool: "Edit", summary: "Edit(/w/a.ts)", agentId: "ag-1", detail: { path: "/w/a.ts", added: 1, removed: 0 } },
+      { ...ok, id: "w2", ts: t(3), tool: "Write", summary: "Write(/w/a.ts)", agentId: "ag-1", detail: { path: "/w/a.ts", added: 2, removed: 0 } },
+      { ...ok, id: "w3", ts: t(2), tool: "Edit", summary: "Edit(/w/b.ts)", agentId: null, detail: { path: "/w/b.ts", added: 1, removed: 1 } },
+      { ...ok, id: "w4", ts: t(1), tool: "Read", summary: "Read(/w/c.ts)", agentId: "ag-2", detail: { path: "/w/c.ts" } },
+      { ...ok, id: "w5", ts: t(1), tool: "Edit", summary: "Edit(/w/d.ts)", agentId: "ag-2", status: "failed", error: "no match", detail: { path: "/w/d.ts" } },
+    ]);
+    const { touched } = (await get(`/api/fleet/sessions/${sid}/touched`, viewer)).json();
+    const mine = touched.filter((x: { path: string }) => ["/w/a.ts", "/w/b.ts", "/w/c.ts", "/w/d.ts"].includes(x.path)).map((x: { path: string; agentId: string | null; edits: number }) => [x.path, x.agentId, x.edits]).sort();
+    expect(mine).toEqual([["/w/a.ts", "ag-1", 2], ["/w/b.ts", null, 1]]);
+  });
 });

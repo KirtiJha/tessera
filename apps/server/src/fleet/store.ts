@@ -249,6 +249,15 @@ export async function getAction(orgId: string, sessionId: string, id: string): P
   return r.rows[0] ? actionFrom(r.rows[0]) : null;
 }
 
+/** Which agent edited or wrote which file, and how often; `agentId` null is the session itself. */
+export async function listTouched(orgId: string, sessionId: string): Promise<{ path: string; agentId: string | null; edits: number; lastAt: string }[]> {
+  const r = await pool.query<{ path: string; agent_id: string | null; edits: number; last_at: Date }>(
+    "SELECT detail->>'path' AS path, agent_id, COUNT(*)::int AS edits, MAX(ts) AS last_at FROM actions WHERE org_id = $1 AND session_id = $2 AND tool IN ('Edit','Write','MultiEdit','NotebookEdit') AND status = 'ok' AND detail ? 'path' GROUP BY 1, 2 ORDER BY 4 DESC LIMIT 2000",
+    [orgId, sessionId],
+  );
+  return r.rows.map((x) => ({ path: x.path, agentId: x.agent_id, edits: x.edits, lastAt: new Date(x.last_at).toISOString() }));
+}
+
 /** Every edit and write whose patch was kept, oldest first. */
 export async function listChanges(orgId: string, sessionId: string): Promise<StoredAction[]> {
   const r = await pool.query("SELECT * FROM actions WHERE org_id = $1 AND session_id = $2 AND detail ? 'patch' AND status = 'ok' ORDER BY ts ASC LIMIT 2000", [orgId, sessionId]);

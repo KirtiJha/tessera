@@ -1,6 +1,7 @@
 import type { ChangedFile, DiffFile, DiffView } from "@tessera/contract";
 import { ChevronRight, FileDiff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ActorTag, useAgentFocus } from "../lib/agentFocus";
 import { api, ApiError } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import { Button } from "./ui";
@@ -71,7 +72,10 @@ const STATUS_TONE = (st: ChangedFile["status"]) => (st === "deleted" ? "text-ros
  * of the engineer's machine when someone opens a file: it is not collected
  * otherwise, and the server keeps it in memory for 15 minutes.
  */
-export function FileDiffs({ sessionId, files, live, canAct, host, dir = null }: { sessionId: string; files: ChangedFile[]; live: boolean; canAct: boolean; host: string | null; dir?: string | null }) {
+export function FileDiffs({ sessionId, files: allFiles, live, canAct, host, dir = null }: { sessionId: string; files: ChangedFile[]; live: boolean; canAct: boolean; host: string | null; dir?: string | null }) {
+  const { focus, whoTouched, split } = useAgentFocus();
+  // Focused on one agent: the files it edited or wrote. A file changed only by a shell command has no agent to show it under.
+  const files = focus ? allFiles.filter((f) => whoTouched(f.path).some((a) => a.key === focus)) : allFiles;
   const [held, setView] = useState<DiffView | null>(null);
   // The server holds one diff per session; one for another repository is not this one's.
   const view = held && held.dir === dir ? held : null;
@@ -142,6 +146,7 @@ export function FileDiffs({ sessionId, files, live, canAct, host, dir = null }: 
                 <ChevronRight size={12} className={`shrink-0 text-fog transition-transform ${isOpen ? "rotate-90" : ""} ${canAct ? "" : "invisible"}`} />
                 <span className={`w-16 shrink-0 ${STATUS_TONE(f.status)}`}>{f.status}</span>
                 <span className="truncate" title={f.path}>{f.path}</span>
+                {split && !focus ? whoTouched(f.path).map((a) => <ActorTag key={a.key} actor={a} className="shrink-0 font-sans" />) : null}
                 <span className="ml-auto flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-slate-3" aria-hidden="true">
                   <span className="bg-teal-400" style={{ width: `${(f.added / max) * 100}%` }} />
                   <span className="bg-rose-400" style={{ width: `${(f.removed / max) * 100}%` }} />
@@ -158,6 +163,7 @@ export function FileDiffs({ sessionId, files, live, canAct, host, dir = null }: 
           );
         })}
       </ul>
+      {focus && allFiles.length > files.length ? <p className="mt-2 text-[12px] text-fog">{files.length ? "" : "None of these files was edited by this agent. "}{allFiles.length - files.length} other changed file{allFiles.length - files.length === 1 ? "" : "s"} hidden: changed by other agents, by a shell command, or outside the session.</p> : null}
       {view?.omitted ? <p className="mt-2 text-[12px] text-fog">{view.omitted} more changed file{view.omitted === 1 ? "" : "s"} not sent: the machine sends the 40 biggest changes.</p> : null}
     </div>
   );

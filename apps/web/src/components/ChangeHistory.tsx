@@ -2,6 +2,7 @@ import type { Action } from "@tessera/contract";
 import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ActorTag, useAgentFocus } from "../lib/agentFocus";
 import { api, ApiError } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import { PatchView } from "./FileDiffs";
@@ -25,6 +26,7 @@ export function ChangeHistory({ sessionId, roots, live }: { sessionId: string; r
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [count, setCount] = useState(0);
+  const { inFocus, actor, split, focus } = useAgentFocus();
 
   useEffect(() => {
     let gone = false;
@@ -52,8 +54,9 @@ export function ChangeHistory({ sessionId, roots, live }: { sessionId: string; r
       </Panel>
     );
 
+  const changes = data.changes.filter((c) => inFocus(c.agentId));
   const byFile = new Map<string, Action[]>();
-  for (const c of data.changes) {
+  for (const c of changes) {
     const p = c.detail?.path ?? c.summary;
     byFile.set(p, [...(byFile.get(p) ?? []), c]);
   }
@@ -67,20 +70,22 @@ export function ChangeHistory({ sessionId, roots, live }: { sessionId: string; r
     });
 
   return (
-    <Panel title={`Change history · ${data.changes.length} edit${data.changes.length === 1 ? "" : "s"}`} action={<button type="button" onClick={() => setCount((n) => n + 1)} className="text-[12px] text-fog hover:text-snow">Refresh</button>}>
+    <Panel title={`Change history · ${changes.length} edit${changes.length === 1 ? "" : "s"}${focus ? ` by ${actor(focus === "main" ? null : focus).label}` : ""}`} action={<button type="button" onClick={() => setCount((n) => n + 1)} className="text-[12px] text-fog hover:text-snow">Refresh</button>}>
       {!files.length ? (
-        <p className="text-[13px] text-fog">No edits yet. Each edit and write is kept as it happens, so it stays here after a commit.</p>
+        <p className="text-[13px] text-fog">{focus && data.changes.length ? `No edits by this ${focus === "main" ? "session itself" : "agent"}; ${data.changes.length} by others.` : "No edits yet. Each edit and write is kept as it happens, so it stays here after a commit."}</p>
       ) : (
         <ul className="space-y-1.5">
           {files.map(([path, edits]) => {
             const isOpen = open.has(path);
             const added = edits.reduce((n, e) => n + (e.detail?.added ?? 0), 0);
             const removed = edits.reduce((n, e) => n + (e.detail?.removed ?? 0), 0);
+            const by = split && !focus ? [...new Map(edits.map((e) => [e.agentId, actor(e.agentId)])).values()] : [];
             return (
               <li key={path} className="rounded-lg border border-line">
                 <button type="button" onClick={() => toggle(path)} aria-expanded={isOpen} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left font-mono text-[12px] hover:bg-slate-2">
                   <ChevronRight size={12} className={`shrink-0 text-fog transition-transform ${isOpen ? "rotate-90" : ""}`} aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate text-mist" title={path}>{short(path, roots)}</span>
+                  {by.map((a) => <ActorTag key={a.key} actor={a} className="shrink-0 font-sans" />)}
                   <span className="shrink-0 font-sans text-[11.5px] text-fog">{edits.length} edit{edits.length === 1 ? "" : "s"}</span>
                   <span className="w-12 shrink-0 text-right text-teal-300">+{added}</span>
                   <span className="w-12 shrink-0 text-right text-rose-400">−{removed}</span>
@@ -91,6 +96,7 @@ export function ChangeHistory({ sessionId, roots, live }: { sessionId: string; r
                       <li key={e.id}>
                         <div className="mb-1 flex items-center gap-2 text-[11.5px] text-fog">
                           <span className="font-mono text-mist">{e.tool}</span>
+                          {split ? <ActorTag actor={actor(e.agentId)} /> : null}
                           <span>{fmtTime(e.ts)}</span>
                           <span className="text-teal-300">+{e.detail?.added ?? 0}</span>
                           <span className="text-rose-400">−{e.detail?.removed ?? 0}</span>

@@ -24,6 +24,22 @@ export function agentLabel(a: AgentView): string {
   return a.kind === "orchestrator" ? "orchestrator" : (a.type ?? a.kind);
 }
 
+/** Each agent's name; agents of the same type are numbered in the order they started ("general-purpose 2"). */
+export function agentNames(agents: AgentView[]): Map<string, string> {
+  const order = [...agents].sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+  const total = new Map<string, number>();
+  for (const a of order) total.set(agentLabel(a), (total.get(agentLabel(a)) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return new Map(
+    order.map((a) => {
+      const base = agentLabel(a);
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      return [a.id, total.get(base)! > 1 ? `${base} ${n}` : base];
+    }),
+  );
+}
+
 /** A colour per agent, by the order they started, so it stays put as the session goes on. */
 export function agentColors(agents: AgentView[]): Map<string, string> {
   const order = [...agents].sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
@@ -37,6 +53,7 @@ export function agentColors(agents: AgentView[]): Map<string, string> {
  */
 export function agentLanes(agents: AgentView[], actions: Action[]): Lane[] {
   const colors = agentColors(agents);
+  const names = agentNames(agents);
   const byId = new Map(agents.map((a) => [a.id, a]));
   const calls = new Map<string, Action[]>();
   for (const a of actions) {
@@ -49,9 +66,9 @@ export function agentLanes(agents: AgentView[], actions: Action[]): Lane[] {
     return {
       key,
       agent,
-      label: agent ? agentLabel(agent) : key === MAIN ? "Main session" : "agent",
+      label: agent ? names.get(agent.id)! : key === MAIN ? "Main session" : "agent",
       color: agent ? colors.get(agent.id)! : null,
-      parent: parent && parent.kind !== "orchestrator" ? agentLabel(parent) : null,
+      parent: parent && parent.kind !== "orchestrator" ? names.get(parent.id)! : null,
       calls: mine,
       running: mine.filter((a) => a.status === "running"),
       last: mine.at(-1) ?? null,
