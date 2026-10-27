@@ -71,7 +71,7 @@ function AgentTree({ agents, selected, onSelect }: { agents: AgentView[]; select
 function AgentDetail({ a, explainIn }: { a: AgentView; explainIn?: string }) {
   const tools = Object.entries(a.toolCalls).sort((x, y) => y[1] - x[1]);
   return (
-    <div className="space-y-3 text-[13px]">
+    <div className="min-w-0 space-y-3 break-words text-[13px]">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-fog">
         <span>{a.kind}{a.type ? ` · ${a.type}` : ""}</span>
         <span>{modelShort(a.model)}{a.effort ? ` · ${a.effort}` : ""}</span>
@@ -81,10 +81,10 @@ function AgentDetail({ a, explainIn }: { a: AgentView; explainIn?: string }) {
       </div>
       {a.description ? <p className="text-snow">{a.description}</p> : null}
       {a.failure ? (
-        <div className="rounded-lg border border-rose-600/50 bg-rose-600/10 p-3">
+        <div className="min-w-0 rounded-lg border border-rose-600/50 bg-rose-600/10 p-3">
           <div className="text-[12px] font-medium text-rose-400">Failed · {a.failure.class.replace("_", " ")}{a.failure.tool ? ` · ${a.failure.tool}` : ""}</div>
-          <div className="mt-1 text-mist">{a.failure.summary}</div>
-          {a.failure.outputTail.length ? <pre className="mt-2 max-h-40 overflow-auto rounded bg-ink p-2 font-mono text-[11.5px] text-fog">{a.failure.outputTail.join("\n")}</pre> : null}
+          <div className="mt-1 line-clamp-6 break-all font-mono text-[12px] text-mist" title={a.failure.summary}>{a.failure.summary}</div>
+          {a.failure.outputTail.length ? <pre className="mt-2 max-h-40 max-w-full overflow-auto rounded bg-ink p-2 font-mono text-[11.5px] text-fog">{a.failure.outputTail.join("\n")}</pre> : null}
           {explainIn ? <ExplainFailure sessionId={explainIn} target={{ kind: "agent", id: a.id }} /> : null}
         </div>
       ) : null}
@@ -416,9 +416,9 @@ export function SessionPage() {
                     <Panel title="Agents">
             {s.context ? <div className="mb-3"><ContextBar used={s.context.used} window={s.context.window} blowouts={s.blowouts} /></div> : null}
             {s.agents.length ? (
-              <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
+              <div className="grid gap-4 md:grid-cols-[minmax(12rem,2fr)_minmax(0,3fr)]">
                 <AgentTree agents={s.agents} selected={agent} onSelect={setAgent} />
-                <div className="rounded-lg border border-line bg-ink-2 p-3">{selectedAgent ? <AgentDetail a={selectedAgent} explainIn={detail.canExplain ? s.id : undefined} /> : <p className="text-[13px] text-fog">Select an agent to see its tools, cost and any failure.</p>}</div>
+                <div className="min-w-0 rounded-lg border border-line bg-ink-2 p-3">{selectedAgent ? <AgentDetail a={selectedAgent} explainIn={detail.canExplain ? s.id : undefined} /> : <p className="text-[13px] text-fog">Select an agent to see its tools, cost and any failure.</p>}</div>
               </div>
             ) : (
               <div className="flex items-center gap-3 text-[13px] text-fog"><AgentStrip s={s} /></div>
