@@ -1,6 +1,7 @@
 import type { Action, AgentView } from "@tessera/contract";
 import { useState } from "react";
 import { api, ApiError } from "../lib/api";
+import { AgentLanes } from "./AgentLanes";
 import { ActionList } from "./Approval";
 
 interface Page { total: number; actions: Action[]; more: boolean }
@@ -8,7 +9,9 @@ interface Page { total: number; actions: Action[]; more: boolean }
 /**
  * A session's tool calls: the last ones live from its reports, and on request
  * the whole history from the server, a hundred at a time, oldest last. Live
- * rows win over stored ones, since they carry the latest state.
+ * rows win over stored ones, since they carry the latest state. With agents in
+ * the session they read either together, each row tagged with its agent, or
+ * one lane per agent; a session with agents working opens on the lanes.
  */
 export function ActionHistory({ sessionId, live, agents, now, explainIn }: { sessionId: string; live: Action[]; agents: AgentView[]; now: number; explainIn?: string }) {
   const [older, setOlder] = useState<Action[] | null>(null);
@@ -16,6 +19,8 @@ export function ActionHistory({ sessionId, live, agents, now, explainIn }: { ses
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const hasAgents = agents.some((a) => a.kind !== "orchestrator");
+  const [byAgent, setByAgent] = useState(() => agents.some((a) => a.kind !== "orchestrator" && a.status === "running"));
 
   const load = async () => {
     setBusy(true);
@@ -49,5 +54,21 @@ export function ActionHistory({ sessionId, live, agents, now, explainIn }: { ses
       {err ? <span className="text-rose-400">{err}</span> : null}
     </div>
   );
-  return <ActionList actions={all} agents={agents} now={now} limit={older ? undefined : 12} filterable explainIn={explainIn} sessionId={sessionId} footer={footer} />;
+  const tab = (on: boolean, label: string) => (
+    <button type="button" role="tab" aria-selected={byAgent === on} onClick={() => setByAgent(on)} className={`rounded-md px-2 py-0.5 ${byAgent === on ? "bg-slate-3 text-snow" : "text-fog hover:text-snow"}`}>{label}</button>
+  );
+  if (!hasAgents) return <ActionList actions={all} agents={agents} now={now} limit={older ? undefined : 12} filterable explainIn={explainIn} sessionId={sessionId} footer={footer} />;
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-0.5 text-[11.5px]" role="tablist" aria-label="Group tool calls">
+        {tab(true, "By agent")}
+        {tab(false, "All together")}
+      </div>
+      {byAgent ? (
+        <AgentLanes sessionId={sessionId} actions={all} agents={agents} now={now} explainIn={explainIn} />
+      ) : (
+        <ActionList actions={all} agents={agents} now={now} limit={older ? undefined : 12} filterable explainIn={explainIn} sessionId={sessionId} footer={footer} showAgent />
+      )}
+    </div>
+  );
 }

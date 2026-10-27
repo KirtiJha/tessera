@@ -29,6 +29,15 @@
   --color-rose-600: #c93a4e;
   --color-violet-400: #a78bfa;
 
+  /* One hue per agent, to tell parallel agents apart. Kept clear of teal, amber and
+     rose, which carry state. */
+  --color-agent-1: #7cb7ff;
+  --color-agent-2: #c79bff;
+  --color-agent-3: #ff9ad5;
+  --color-agent-4: #a3d977;
+  --color-agent-5: #6fd6e8;
+  --color-agent-6: #e0c36a;
+
   --radius-tile: 7px;
   --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -16px rgba(0, 0, 0, 0.6);
   --ease-tile: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -66,6 +75,13 @@
   --color-rose-400: #c93a4e;
   --color-rose-600: #a32638;
   --color-violet-400: #6d4fd8;
+
+  --color-agent-1: #2563c4;
+  --color-agent-2: #7a3fd0;
+  --color-agent-3: #b8327f;
+  --color-agent-4: #4d7f1f;
+  --color-agent-5: #0e7d92;
+  --color-agent-6: #8a6a07;
 
   --shadow-tile: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 24px -16px rgba(16, 20, 24, 0.25);
 }

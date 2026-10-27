@@ -222,12 +222,17 @@ const actionFrom = (r: { id: string; ts: Date | string; tool: string; agent_id: 
   detail: r.detail,
 });
 
-/** A session's tool calls, newest first, a page at a time; `failed` keeps only failed and denied ones. */
-export async function listActions(orgId: string, sessionId: string, opts: { before?: string; limit: number; failed?: boolean; tool?: string }): Promise<{ actions: StoredAction[]; total: number }> {
+/**
+ * A session's tool calls, newest first, a page at a time; `failed` keeps only failed and denied ones,
+ * and `agent` one agent's calls, or with `null` the main session's own.
+ */
+export async function listActions(orgId: string, sessionId: string, opts: { before?: string; limit: number; failed?: boolean; tool?: string; agent?: string | null }): Promise<{ actions: StoredAction[]; total: number }> {
   const where = ["org_id = $1", "session_id = $2"];
   const args: unknown[] = [orgId, sessionId];
   if (opts.failed) where.push("status IN ('failed','denied')");
   if (opts.tool) where.push(`tool = $${args.push(opts.tool)}`);
+  if (opts.agent === null) where.push("agent_id IS NULL");
+  else if (opts.agent) where.push(`agent_id = $${args.push(opts.agent)}`);
   const base = where.join(" AND ");
   const page = [...where];
   const pageArgs = [...args];

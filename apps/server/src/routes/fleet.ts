@@ -314,15 +314,15 @@ export async function fleetRoutes(app: FastifyInstance, opts: { fleet: Fleet; hu
     return { ...a, detail: light };
   };
 
-  /** The session's whole tool-call history, newest first, a page at a time (`before`: the oldest call shown). */
+  /** The session's whole tool-call history, newest first, a page at a time (`before`: the oldest call shown; `agent`: one agent's, or `main` for the session's own). */
   app.get("/sessions/:id/actions", async (req, reply) => {
     const p = req.principal!;
     const { id } = req.params as { id: string };
-    const q = z.object({ before: z.string().datetime().optional(), limit: z.coerce.number().int().min(1).max(200).default(100), failed: z.enum(["1", "0"]).optional(), tool: z.string().max(120).optional() }).parse(req.query);
+    const q = z.object({ before: z.string().datetime().optional(), limit: z.coerce.number().int().min(1).max(200).default(100), failed: z.enum(["1", "0"]).optional(), tool: z.string().max(120).optional(), agent: z.string().min(1).max(200).optional() }).parse(req.query);
     const rec = fleet.get(p.orgId, id) ?? (await store.loadSession(p.orgId, id));
     if (!rec) return reply.code(404).send({ error: "no such session" });
     const full = canActOn(p, { ownerId: rec.ownerId, teamId: rec.teamId, assigneeId: rec.control.assignee?.id });
-    const r = await store.listActions(p.orgId, id, { before: q.before, limit: q.limit, failed: q.failed === "1", tool: q.tool });
+    const r = await store.listActions(p.orgId, id, { before: q.before, limit: q.limit, failed: q.failed === "1", tool: q.tool, agent: q.agent === "main" ? null : q.agent });
     return { total: r.total, actions: r.actions.map((a) => forViewer(a, full)), more: r.actions.length === q.limit };
   });
 

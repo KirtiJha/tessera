@@ -1,6 +1,7 @@
 import type { Action, AgentView, AskDetail, RiskFlag } from "@tessera/contract";
 import { AlertTriangle, Check, ChevronDown, Loader2, ShieldAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { agentColors, agentLabel } from "../lib/agents";
 import { ago, fmtTime } from "../lib/format";
 import { CallDetail } from "./CallDetail";
 import { ExplainFailure } from "./ExplainFailure";
@@ -140,7 +141,7 @@ type ActionFilter = "all" | "failed" | "running";
  * `sessionId`: open rows read everything kept about the call (command, output, patch) from the server.
  * `footer`: below the list, such as a way to load older calls.
  */
-export function ActionList({ actions, agents = [], now, limit, title, filterable = false, explainIn, sessionId, footer }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean; explainIn?: string; sessionId?: string; footer?: ReactNode }) {
+export function ActionList({ actions, agents = [], now, limit, title, filterable = false, explainIn, sessionId, footer, showAgent = false }: { actions: Action[]; agents?: AgentView[]; now: number; limit?: number; title?: string; filterable?: boolean; explainIn?: string; sessionId?: string; footer?: ReactNode; showAgent?: boolean }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [all, setAll] = useState(false);
   const [filter, setFilter] = useState<ActionFilter>("all");
@@ -150,8 +151,9 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
   const list = all || !limit ? matching : matching.slice(0, limit);
   const agentName = (id: string | null) => {
     const a = id ? agents.find((x) => x.id === id) : undefined;
-    return a ? (a.kind === "orchestrator" ? "orchestrator" : (a.type ?? a.kind)) : null;
+    return a ? agentLabel(a) : null;
   };
+  const colors = useMemo(() => agentColors(agents), [agents]);
   const toggle = (id: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -184,11 +186,17 @@ export function ActionList({ actions, agents = [], now, limit, title, filterable
           {list.map((a) => {
             const isOpen = open.has(a.id);
             const agent = agentName(a.agentId);
+            const color = a.agentId ? colors.get(a.agentId) : undefined;
             const when = a.status === "running" ? `${ago(a.ts, now)} ago` : (took(a) ?? ago(a.ts, now));
             return (
               <li key={a.id}>
                 <button type="button" onClick={() => toggle(a.id)} aria-expanded={isOpen} aria-controls={`action-${a.id}`} className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-slate-1 focus:outline-none focus-visible:bg-slate-1">
                   <span className="mt-0.5 shrink-0"><StatusMark status={a.status} /></span>
+                  {showAgent ? (
+                    <span className="mt-px w-24 shrink-0 truncate text-[11px] font-medium" style={{ color: color ?? "var(--color-fog)" }} title={a.agentId ? `Made by the ${agent ?? "agent"} agent` : "Made by the main session"}>
+                      {a.agentId ? (agent ?? "agent") : "main"}
+                    </span>
+                  ) : null}
                   <span className="min-w-0 flex-1">
                     <span className={`block font-mono text-mist ${isOpen ? "whitespace-pre-wrap break-words" : "truncate"}`}>{a.summary}{a.withheld ? <span className="ml-1.5 font-sans text-[11px] text-amber-400">text withheld by a network filter</span> : null}</span>
                     {a.error && !isOpen ? <span className="block truncate text-rose-400">{a.error}</span> : null}

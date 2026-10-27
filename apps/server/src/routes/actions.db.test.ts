@@ -99,4 +99,19 @@ describe.skipIf(!reachable)("a session's tool-call history and change history", 
     expect(first.actions.length + rest.actions.length).toBe(47);
     expect((await get(`/api/fleet/sessions/${sid}/actions?failed=1`, admin)).json().actions.map((a: { id: string }) => a.id)).toEqual(["c1"]);
   });
+
+  it("gives one agent's calls, or the main session's own, so parallel agents can be read apart", async () => {
+    const t0 = { tool: "Read", status: "ok", endedAt: t(5), durationMs: 1, error: null };
+    await report([
+      { ...t0, id: "g1", ts: t(9), summary: "Read(a)", agentId: "ag-1" },
+      { ...t0, id: "g2", ts: t(8), summary: "Read(b)", agentId: "ag-2" },
+      { ...t0, id: "g3", ts: t(7), summary: "Read(c)", agentId: "ag-1" },
+    ]);
+    const ids = async (q: string) => (await get(`/api/fleet/sessions/${sid}/actions?${q}`, admin)).json().actions.map((a: { id: string }) => a.id);
+    expect(await ids("agent=ag-1")).toEqual(["g3", "g1"]);
+    expect(await ids("agent=ag-2")).toEqual(["g2"]);
+    const main = await ids("agent=main&limit=200");
+    expect(main.filter((id: string) => id.startsWith("g"))).toEqual([]);
+    expect(main.length).toBe(47);
+  });
 });
